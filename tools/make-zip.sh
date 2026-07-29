@@ -23,6 +23,12 @@ cp -R module/. "$STAGE/"
 mkdir -p "$STAGE/kernel"
 cp "$KERNEL" "$STAGE/kernel/Image.gz"
 
+# Record the payload hash so the installer can prove the kernel it is about to
+# flash is the one that was built, not a truncated or corrupted download. A zip
+# that unpacks cleanly can still contain a damaged Image.gz.
+shasum -a 256 "$STAGE/kernel/Image.gz" | cut -d' ' -f1 > "$STAGE/kernel/Image.gz.sha256"
+echo "  payload sha256: $(cat "$STAGE/kernel/Image.gz.sha256")"
+
 # macOS on exFAT sprays AppleDouble sidecars; they must not reach the zip.
 find "$STAGE" -name '._*' -delete 2>/dev/null || true
 find "$STAGE" -name '.DS_Store' -delete 2>/dev/null || true

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Docker for Android</title>
+<style>
+:root{--bg:#0f1115;--card:#171a21;--line:#252a34;--fg:#e6e9ef;--dim:#8b93a7;--ok:#3fb950;--bad:#f85149;--warn:#d29922;--accent:#2f81f7}
+@media(prefers-color-scheme:light){:root{--bg:#f6f7f9;--card:#fff;--line:#e3e6ea;--fg:#1c2128;--dim:#5b6472}}
+*{box-sizing:border-box}
+body{margin:0;padding:16px 14px 40px;background:var(--bg);color:var(--fg);
+ font:15px/1.5 -apple-system,"Roboto",system-ui,sans-serif}
+h1{font-size:19px;margin:0 0 2px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 10px;font-weight:600}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0}
+.row+.row{border-top:1px solid var(--line)}
+.k{color:var(--dim);font-size:14px}
+.v{font-weight:600;font-size:14px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+button{background:var(--accent);color:#fff;border:0;border-radius:9px;padding:10px 14px;
+ font-size:14px;font-weight:600;cursor:pointer;flex:1;min-width:110px}
+button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+button:active{opacity:.65}
+button:disabled{opacity:.4}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+input{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);
+ background:var(--bg);color:var(--fg);font-size:14px;margin-bottom:8px}
+.sw{position:relative;width:48px;height:28px;flex:0 0 48px}
+.sw input{opacity:0;width:0;height:0;position:absolute}
+.sl{position:absolute;inset:0;background:var(--line);border-radius:28px;transition:.2s}
+.sl:before{content:"";position:absolute;height:22px;width:22px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.sw input:checked+.sl{background:var(--ok)}
+.sw input:checked+.sl:before{transform:translateX(20px)}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px;
+ font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;margin:10px 0 0}
+.ct{display:flex;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px}
+.ct+.ct{border-top:1px solid var(--line)}
+.ct .n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ct .s{color:var(--dim);flex:0 0 auto;font-size:12px}
+a{color:var(--accent)}
+</style></head><body>
+
+<h1>Docker for Android</h1>
+<div class="sub" id="sub">raphael &middot; loading&hellip;</div>
+
+<div class="card"><h2>Status</h2>
+  <div class="row"><span class="k">Kernel</span><span class="v" id="s-kernel">…</span></div>
+  <div class="row"><span class="k">Debian rootfs</span><span class="v" id="s-rootfs">…</span></div>
+  <div class="row"><span class="k">Docker daemon</span><span class="v" id="s-daemon">…</span></div>
+  <div class="row"><span class="k">Network rules</span><span class="v" id="s-net">…</span></div>
+  <div class="row"><span class="k">Uplinks</span><span class="v" id="s-up">…</span></div>
+  <div class="row" id="r-vpn" style="display:none"><span class="k">VPN on uid 0</span><span class="v warn">may break pulls</span></div>
+</div>
+
+<div class="card"><h2>Docker</h2>
+  <div class="row">
+    <span class="k">Start automatically at boot</span>
+    <label class="sw"><input type="checkbox" id="auto"><span class="sl"></span></label>
+  </div>
+  <div class="row">
+    <span class="k">SSH server<br><span style="font-size:12px;color:var(--dim)">root shell on loopback, key auth only &mdash; reach it via a tunnel</span></span>
+    <label class="sw"><input type="checkbox" id="sshd"><span class="sl"></span></label>
+  </div>
+  <div class="btns">
+    <button id="b-start">Start</button>
+    <button id="b-stop" class="ghost">Stop</button>
+    <button id="b-doctor" class="ghost">Repair</button>
+  </div>
+</div>
+
+<div class="card"><h2>Portainer</h2>
+  <div class="sub" style="margin:0 0 6px">Web UI for containers, on port 9000.</div>
+  <div class="btns">
+    <button id="b-ui">Start</button>
+    <button id="b-uiopen" class="ghost">Open</button>
+    <button id="b-uistop" class="ghost">Stop</button>
+  </div>
+</div>
+
+<div class="card"><h2>Cloudflare Tunnel</h2>
+  <div class="sub" style="margin:0 0 8px">
+    Reaches your services from anywhere. Connects outbound, so it needs no port
+    forwarding and works behind CGNAT.
+  </div>
+  <div class="btns" style="margin-bottom:10px">
+    <button id="b-quick">Quick tunnel</button>
+    <button id="b-tstop" class="ghost">Stop</button>
+  </div>
+  <input id="cfurl" placeholder="Local service (default http://127.0.0.1:8080)">
+  <div class="sub" style="margin:10px 0 6px">Or a named tunnel from the Zero&nbsp;Trust dashboard:</div>
+  <input id="cftok" placeholder="Tunnel token" autocomplete="off">
+  <div class="btns"><button id="b-token" class="ghost">Save token &amp; connect</button></div>
+</div>
+
+<div class="card"><h2>Containers</h2><div id="cts" class="sub">…</div></div>
+
+<div class="card"><h2>Output</h2><pre id="out">ready</pre></div>
+
+<script>
+// KernelSU's WebUI bridge: ksu.exec(cmd, optsJson, globalCallbackName), which
+// calls back with (errno, stdout, stderr).
+function sh(cmd){
+  return new Promise(function(res){
+    if(typeof ksu==="undefined"||!ksu.exec){res({code:1,out:"",err:"no ksu bridge"});return;}
+    var cb="_cb"+(Date.now().toString(36))+Math.floor(Math.random()*1e6).toString(36);
+    window[cb]=function(code,out,err){delete window[cb];res({code:code,out:out||"",err:err||""});};
+    try{ksu.exec(cmd,"{}",cb);}catch(e){delete window[cb];res({code:1,out:"",err:String(e)});}
+  });
+}
+var D="/data/adb/docker/dockerctl";
+var out=document.getElementById("out");
+function log(t){out.textContent=t;out.scrollTop=0;}
+function busy(b){document.querySelectorAll("button").forEach(function(x){x.disabled=b;});}
+async function run(cmd,label){
+  busy(true);log((label||cmd)+"…");
+  var r=await sh(D+" "+cmd);
+  log(((r.out||"")+(r.err||"")).trim()||"(done)");
+  busy(false);await refresh();
+}
+function mark(el,good,gt,bt){el.textContent=good?gt:bt;el.className="v "+(good?"ok":"bad");}
+
+async function refresh(){
+  var r=await sh(D+" json");
+  var st={},cts=[];
+  (r.out||"").split("\n").forEach(function(l){
+    if(l.indexOf("container=")===0){cts.push(l.slice(10));return;}
+    var i=l.indexOf("=");if(i>0)st[l.slice(0,i)]=l.slice(i+1).trim();
+  });
+  mark(document.getElementById("s-kernel"),st.kernel==="ok","capable","not capable");
+  mark(document.getElementById("s-rootfs"),st.rootfs==="ok","installed","missing");
+  mark(document.getElementById("s-daemon"),st.daemon==="ok","running","stopped");
+  mark(document.getElementById("s-net"),st.net==="ok","applied","missing");
+  document.getElementById("s-up").textContent=st.uplinks||"none";
+  document.getElementById("r-vpn").style.display=(st.vpn==="yes")?"flex":"none";
+  document.getElementById("auto").checked=(st.autostart==="on");
+  document.getElementById("sshd").checked=(st.sshd==="on");
+  document.getElementById("sub").textContent="raphael · "+(st.daemon==="ok"?"Docker running":"Docker stopped");
+  var box=document.getElementById("cts");
+  if(!cts.length){box.textContent=st.daemon==="ok"?"none":"start Docker to see containers";box.className="sub";}
+  else{box.className="";box.innerHTML=cts.map(function(c){
+    var p=c.split("|");
+    var up=/^Up/.test(p[1]||"");
+    return '<div class="ct"><span class="n">'+esc(p[0])+'</span><span class="s '+(up?"ok":"dim")+'">'+esc(p[1]||"")+'</span></div>';
+  }).join("");}
+}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+
+document.getElementById("auto").addEventListener("change",function(e){
+  run("autostart "+(e.target.checked?"on":"off"),"autostart");
+});
+document.getElementById("sshd").addEventListener("change",function(e){
+  run("ssh "+(e.target.checked?"on":"off"),"ssh server");
+});
+document.getElementById("b-start").onclick =function(){run("start","starting Docker");};
+document.getElementById("b-stop").onclick  =function(){run("stop","stopping Docker");};
+document.getElementById("b-doctor").onclick=function(){run("doctor --fix","checking");};
+document.getElementById("b-ui").onclick    =function(){run("ui start","starting Portainer");};
+document.getElementById("b-uistop").onclick=function(){run("ui stop","stopping Portainer");};
+document.getElementById("b-uiopen").onclick=function(){run("ui open","opening");};
+document.getElementById("b-quick").onclick =function(){
+  var u=document.getElementById("cfurl").value.trim();
+  run("tunnel quick "+(u||"http://127.0.0.1:8080"),"starting tunnel");
+};
+document.getElementById("b-tstop").onclick =function(){run("tunnel stop","stopping tunnel");};
+document.getElementById("b-token").onclick =function(){
+  var t=document.getElementById("cftok").value.trim();
+  if(!t){log("paste a tunnel token first");return;}
+  document.getElementById("cftok").value="";
+  run("tunnel token "+t,"connecting tunnel");
+};
+refresh();
+</script></body></html>

@@ -25,6 +25,12 @@ done
 
 net_apply >> "$D/boot.log" 2>&1
 
+# sshd first: if the daemon start fails, remote access still comes back.
+if [ -f "$D/sshd" ]; then
+    mount_chroot >/dev/null 2>&1
+    in_chroot 'mkdir -p /run/sshd; pgrep -x sshd >/dev/null || /usr/sbin/sshd' >> "$D/boot.log" 2>&1
+fi
+
 [ -f "$D/autostart" ] || exit 0
 daemon_start >> "$D/boot.log" 2>&1
 # --restart=always containers come back by themselves once dockerd is up.

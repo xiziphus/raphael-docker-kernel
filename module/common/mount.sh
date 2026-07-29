@@ -68,13 +68,21 @@ umount_chroot() {
 # exists inside Debian, so /etc/profile fails with "id: command not found".
 # Every entry point below sets a Debian PATH explicitly.
 CPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# TMPDIR must be reset too. Android exports TMPDIR=/data/local/tmp, which does
+# not exist inside the chroot, and runc writes its process spec there for every
+# `docker exec`:
+#     OCI runtime exec failed: open /data/local/tmp/runc-process... :
+#     no such file or directory
+# `docker run` is unaffected, so this only shows up once you exec into a
+# container -- exactly when you are debugging something else.
+CTMP=/tmp
 
 in_chroot() {          # run a command STRING (internal callers, heredocs)
     mount_chroot >/dev/null || return 1
     if [ "$#" -eq 0 ]; then
-        PATH=$CPATH $BB chroot "$ROOT" /bin/bash -l
+        PATH=$CPATH TMPDIR=$CTMP $BB chroot "$ROOT" /bin/bash -l
     else
-        PATH=$CPATH $BB chroot "$ROOT" /bin/bash -c "export PATH=$CPATH; $*"
+        PATH=$CPATH TMPDIR=$CTMP $BB chroot "$ROOT" /bin/bash -c "export PATH=$CPATH TMPDIR=$CTMP; $*"
     fi
 }
 
@@ -83,5 +91,5 @@ in_chroot_exec() {     # run a command preserving ARGV exactly
     # must reach docker as ONE --format argument. Flattening argv into a string
     # splits it on spaces and docker rejects the extras.
     mount_chroot >/dev/null || return 1
-    PATH=$CPATH $BB chroot "$ROOT" /usr/bin/env "PATH=$CPATH" "$@"
+    PATH=$CPATH TMPDIR=$CTMP $BB chroot "$ROOT" /usr/bin/env "PATH=$CPATH" "TMPDIR=$CTMP" "$@"
 }

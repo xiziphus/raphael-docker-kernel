@@ -9,13 +9,15 @@
 #   dockerctl net apply|check|clear   Android routing/firewall rules
 #   dockerctl ui start|stop|status    Portainer
 #   dockerctl ui admin <password>     create the Portainer admin, no browser
+#   dockerctl tunnel quick [url]       ephemeral public URL via Cloudflare
+#   dockerctl tunnel token <token>     named tunnel from the CF dashboard
 #   dockerctl shell                   a shell in the Debian chroot
 #   dockerctl <anything else>         passed to docker in the chroot
 ##########################################################################
 set -u
 D=/data/adb/docker
 . "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"
-. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"
+. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"
 
 [ "$(id -u)" = 0 ] || { bad "must run as root: su -c 'dockerctl $*'"; exit 1; }
 
@@ -44,6 +46,51 @@ case "$cmd" in
       open)   am start -a android.intent.action.VIEW -d http://127.0.0.1:9000 >/dev/null 2>&1
               ok "opened in browser" ;;
       *)      bad "usage: dockerctl ui start|stop|status|admin <pw>|open"; exit 1 ;;
+    esac ;;
+  autostart)
+    case "${1:-status}" in
+      on)     touch "$STATE/autostart";  ok "autostart ON" ;;
+      off)    rm -f "$STATE/autostart";  ok "autostart OFF" ;;
+      status) [ -f "$STATE/autostart" ] && ok "autostart ON" || bad "autostart OFF" ;;
+      *)      bad "usage: dockerctl autostart on|off|status"; exit 1 ;;
+    esac ;;
+  json)
+    # Machine-readable state for the WebUI: one key=value per line, so the page
+    # parses a single call instead of shelling out six times.
+    printf 'kernel=%s\n'    "$( { [ -e /proc/self/ns/user ] && grep -qE '^pids[[:space:]]' /proc/cgroups; } >/dev/null 2>&1 && echo ok || echo no)"
+    printf 'rootfs=%s\n'    "$(have_rootfs && echo ok || echo no)"
+    printf 'daemon=%s\n'    "$(running && echo ok || echo no)"
+    printf 'net=%s\n'       "$(net_check >/dev/null 2>&1 && echo ok || echo no)"
+    printf 'autostart=%s\n' "$([ -f "$STATE/autostart" ] && echo on || echo off)"
+    printf 'sshd=%s\n' "$([ -f "$STATE/sshd" ] && echo on || echo off)"
+    printf 'uplinks=%s\n'   "$(uplinks | tr '\n' ' ')"
+    printf 'vpn=%s\n'       "$(vpn_holds_root && echo yes || echo no)"
+    if running; then
+        in_chroot_exec docker ps -a --format 'container={{.Names}}|{{.Status}}|{{.Image}}' 2>/dev/null
+    fi ;;
+  tunnel)
+    case "${1:-status}" in
+      token)  shift; tunnel_token "${1:-}" ;;
+      quick)  shift; tunnel_quick "${1:-}" ;;
+      named)  tunnel_named ;;
+      stop)   tunnel_stop ;;
+      status) tunnel_status ;;
+      *)      bad "usage: dockerctl tunnel token <tok> | quick [url] | named | stop | status"; exit 1 ;;
+    esac ;;
+  ssh)
+    # sshd runs INSIDE the chroot bound to loopback, reachable only through the
+    # Cloudflare tunnel. Enabling it here also makes the boot service start it,
+    # so remote access survives a reboot -- otherwise an unattended restart
+    # leaves the device unreachable until someone plugs in USB.
+    case "${1:-status}" in
+      on)  touch "$STATE/sshd"
+           in_chroot 'mkdir -p /run/sshd; pgrep -x sshd >/dev/null || /usr/sbin/sshd'
+           ok "sshd enabled and started" ;;
+      off) rm -f "$STATE/sshd"; in_chroot 'pkill -x sshd' >/dev/null 2>&1; ok "sshd disabled" ;;
+      status)
+           [ -f "$STATE/sshd" ] && ok "sshd enabled at boot" || bad "sshd not enabled at boot"
+           in_chroot 'pgrep -x sshd >/dev/null && echo "  running" || echo "  not running"' ;;
+      *)   bad "usage: dockerctl ssh on|off|status"; exit 1 ;;
     esac ;;
   status)
     have_rootfs && ok "rootfs $ROOT" || bad "no rootfs (dockerctl setup)"

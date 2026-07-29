@@ -40,38 +40,43 @@ either report a version (you have root) or say it is not installed.
 
 | Your situation | Path |
 |---|---|
-| Infinity-X 3.11, **no root** | **A** — fastboot once, then the zip |
+| **No root yet** | **A** — recovery zip, then the module zip |
 | Any raphael ROM, **KernelSU already working** | **B** — just the zip |
 | Running a LineageOS / SOVIET / other custom kernel, with root | **B** — the zip replaces whatever kernel you have |
 | **Android 17** | **C** — build it yourself; this release is Android 16 only |
 
 ---
 
-### Path A — Infinity-X 3.11 with no root
+### Path A — no root yet
 
-You need a KernelSU-enabled kernel before a KernelSU module can run, so this
-one time you must use a PC.
-
-```sh
-# 1. Back up your current boot partition FIRST
-adb reboot bootloader
-# (from another terminal, with the phone in fastboot)
-
-# 2. Flash the prebuilt image - this gives you BOTH KernelSU and Docker support
-fastboot flash boot boot-INFINITYX-3.11-ONLY.img
-fastboot reboot
-```
-
-That image is safe **only** on Infinity-X 3.11 exactly, because it carries that
-build's ramdisk, DTB and security patch level. On any other build it will
-bootloop, or make `/data` unreadable.
+You need a KernelSU-enabled kernel before a KernelSU module can run. Flash the
+**AnyKernel3** zip in a custom recovery (TWRP, OrangeFox):
 
 ```
-3. Install the KernelSU-Next manager app, open it - it should now show a version
-4. KernelSU app -> Modules -> install raphael-docker-kernel-vX.Y.Z.zip
-   (it will detect the kernel is already capable and skip the kernel step)
-5. Reboot, then open the module and tap ACTION -> install Docker
+1. Copy antigravity-docker-kernel-vX.Y.Z-AnyKernel3.zip to the phone
+2. Boot to recovery -> Install -> select the zip
+3. Reboot
 ```
+
+It brings its own tools and does not need `/data` decrypted, so it works in
+recovery where a KernelSU module cannot. It unpacks the boot image **already on
+your device**, swaps in only the kernel, and writes it back — your ramdisk, DTB
+and security patch level are untouched. It refuses to run on the wrong device or
+the wrong Android version.
+
+That kernel contains KernelSU, so now:
+
+```
+4. Install the KernelSU-Next manager app - it should report a version
+5. KernelSU app -> Modules -> install raphael-docker-kernel-vX.Y.Z.zip
+   (it sees the kernel is already capable and skips the kernel step)
+6. Reboot, open the module, tap ACTION -> install Docker
+```
+
+*No recovery installed?* `fastboot flash boot boot-INFINITYX-3.11-ONLY.img` does
+the same job, but **only** if you are on Infinity-X 3.11 exactly — that image
+carries one device's ramdisk and `os_patch_level`, and on any other build it
+will bootloop or make `/data` unreadable. Prefer the AnyKernel3 zip.
 
 ### Path B — you already have KernelSU
 

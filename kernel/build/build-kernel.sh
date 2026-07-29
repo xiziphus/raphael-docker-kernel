@@ -90,9 +90,11 @@ export LD="$CLANG_ROOT/bin/ld.lld"
 export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
 export LLVM_IAS=1
 
-# Identify our build without colliding with InfinityX's own version string.
-export KBUILD_BUILD_USER="antigravity"
-export KBUILD_BUILD_HOST="raphael-docker"
+# Build identity. These two are what /proc/version and the boot banner report
+# as "who built this kernel", and they do NOT affect `uname -r`, so branding
+# here costs nothing in compatibility. Override at build time if you fork this.
+export KBUILD_BUILD_USER="${KBUILD_BUILD_USER:-antigravitykernel}"
+export KBUILD_BUILD_HOST="${KBUILD_BUILD_HOST:-antigravity}"
 
 export CCACHE_DIR="${CCACHE_DIR:-$WORK/ccache}"
 mkdir -p "$CCACHE_DIR"

@@ -13,11 +13,17 @@ D=/data/adb/docker
 . "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"
 
 T="${TMPDIR:-/data/local/tmp}"
-choose() {   # 0 = VOL+, 1 = VOL-
+choose() {   # 0 = VOL+, 1 = VOL-, and 1 (no) if nobody answers
+  # Bounded, because getevent blocks forever. An unanswered prompt used to hang
+  # the installer indefinitely -- fine when you are holding the phone, useless
+  # when the screen is off or the install was kicked off over adb. Defaulting to
+  # NO on timeout is the safe direction: every prompt here is opt-in, so silence
+  # declines rather than flashes anything.
   while true; do
-    getevent -lc 1 2>&1 | grep VOLUME | grep " DOWN" > "$T/.ksuevt"
-    grep -q VOLUMEUP   "$T/.ksuevt" && return 0
-    grep -q VOLUMEDOWN "$T/.ksuevt" && return 1
+    timeout 120 getevent -lc 1 2>&1 | grep VOLUME | grep " DOWN" > "$TMPDIR/evt" || {
+      echo "    no answer in 120s - assuming NO"; return 1; }
+    grep -q VOLUMEUP   "$TMPDIR/evt" && return 0
+    grep -q VOLUMEDOWN "$TMPDIR/evt" && return 1
   done
 }
 ask() { echo ""; echo "  $1"; echo "    VOL+ = yes    VOL- = no"; choose; }
