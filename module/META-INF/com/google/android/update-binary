@@ -1,0 +1,10 @@
+#!/sbin/sh
+umask 022
+ui_print() { echo "$1"; }
+OUTFD=$2; ZIPFILE=$3
+mount /data 2>/dev/null
+if   [ -f /data/adb/ksu/bin/util_functions.sh ]; then . /data/adb/ksu/bin/util_functions.sh
+elif [ -f /data/adb/magisk/util_functions.sh ]; then . /data/adb/magisk/util_functions.sh
+else ui_print "! Install with KernelSU or Magisk."; exit 1; fi
+install_module
+exit 0
