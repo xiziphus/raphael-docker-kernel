@@ -13,6 +13,9 @@ KERNEL="${1:?usage: tools/make-zip.sh <Image.gz> [out.zip]}"
 VER=$(grep '^version=' module/module.prop | cut -d= -f2)
 OUT="${2:-dist/raphael-docker-kernel-${VER}.zip}"
 mkdir -p "$(dirname "$OUT")"
+# Resolve to an absolute path: the zip runs from a staging dir, so a relative
+# path would land in the wrong place and an absolute one must not be re-prefixed.
+OUT="$(cd "$(dirname "$OUT")" && pwd)/$(basename "$OUT")"
 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
@@ -25,6 +28,6 @@ find "$STAGE" -name '._*' -delete 2>/dev/null || true
 find "$STAGE" -name '.DS_Store' -delete 2>/dev/null || true
 
 rm -f "$OUT"
-( cd "$STAGE" && zip -qr9 "$OLDPWD/$OUT" . -x '._*' -x '*/._*' -x '.DS_Store' )
+( cd "$STAGE" && zip -qr9 "$OUT" . -x '._*' -x '*/._*' -x '.DS_Store' )
 echo "built: $OUT  ($(du -h "$OUT" | cut -f1))"
 shasum -a 256 "$OUT"
