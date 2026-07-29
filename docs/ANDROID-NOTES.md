@@ -127,3 +127,46 @@ containers, not routed NAT.
 
 `overlay2` works on f2fs. Docker warns that f2fs is not a supported backing
 filesystem; it functions regardless.
+
+## Suspend — the thing that quietly breaks everything
+
+Android autosleeps whenever no wakelock is held, and it does not know a
+container is work worth staying awake for. Measured on raphael **during an
+active kernel build**:
+
+| | suspends in 30 s |
+|---|---|
+| no wakelock | **75** |
+| wakelock held | **0** |
+
+Two and a half suspend/resume cycles per second. The symptoms do not look like
+suspend, which is what makes it expensive to diagnose: CPU idle swinging
+between 0% and 57% for no visible reason, a build taking 57 minutes that should
+take far less, Frappe's scheduler missing ticks, and SSH over the tunnel dying
+with `closed by remote host` when cloudflared is frozen mid-stream.
+
+The kernel's userspace wakelock interface is the fix. Writing a tag to
+`/sys/power/wake_lock` blocks suspend until the same tag is written to
+`/sys/power/wake_unlock`. It is mode 660 `system:AID_BLOCK_SUSPEND`, so it
+needs root. Locks are global and **not** nested — writing a tag twice is the
+same as once — so the module stores a *mode* and reconciles, rather than
+counting.
+
+`dockerctl wake off|auto|always` and a per-container watch list
+(`dockerctl wake add <name>`). `auto` is the useful one: hold the lock only
+while something you named is actually running, so a scratch container you
+forgot about does not keep the phone awake for a week. Wakelocks do not survive
+a reboot, so `service.sh` re-syncs at boot and every 60 s.
+
+## Container resource limits
+
+This kernel has no CFS bandwidth control, so `--cpus` fails outright:
+
+```
+docker: Error response from daemon: NanoCPUs can not be set, as your kernel
+does not support CPU CFS scheduler or the cgroup is not mounted.
+```
+
+`--memory-swap` is unsupported too ("Memory limited without swap"). Only
+`--memory` and `--cpuset-cpus` work. Any compose file with `cpus:` set will
+error out — a common surprise when importing a stack that ran fine on a server.

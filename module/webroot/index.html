@@ -33,10 +33,19 @@ input{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);
 .sw input:checked+.sl:before{transform:translateX(20px)}
 pre{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px;
  font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;margin:10px 0 0}
-.ct{display:flex;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px}
+.ct{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px}
 .ct+.ct{border-top:1px solid var(--line)}
 .ct .n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ct .s{color:var(--dim);flex:0 0 auto;font-size:12px}
+.ct .meta{flex:1;min-width:0}
+.ct .s{color:var(--dim);font-size:12px}
+/* Per-container "keep awake" pill. A full switch per row is too big on a phone
+   and too easy to hit by accident while scrolling. */
+.wk{flex:0 0 auto;border:1px solid var(--line);border-radius:20px;padding:4px 9px;
+ font-size:11px;color:var(--dim);cursor:pointer;user-select:none;white-space:nowrap}
+.wk.on{border-color:var(--ok);color:var(--ok)}
+.wk.dis{opacity:.35;pointer-events:none}
+select{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);
+ background:var(--bg);color:var(--fg);font-size:14px}
 a{color:var(--accent)}
 </style></head><body>
 
@@ -65,6 +74,23 @@ a{color:var(--accent)}
     <button id="b-start">Start</button>
     <button id="b-stop" class="ghost">Stop</button>
     <button id="b-doctor" class="ghost">Repair</button>
+  </div>
+</div>
+
+<div class="card"><h2>Keep awake</h2>
+  <div class="sub" style="margin:0 0 8px">
+    Android suspends this device about twice a second when nothing holds a
+    wakelock, which freezes containers mid-work. Holding one costs battery, so
+    scope it to what actually matters.
+  </div>
+  <select id="wake">
+    <option value="off">Off &mdash; let Android sleep normally</option>
+    <option value="auto">While watched containers run</option>
+    <option value="always">Always &mdash; never sleep</option>
+  </select>
+  <div class="row"><span class="k">Wakelock now</span><span class="v" id="s-wake">…</span></div>
+  <div class="sub" id="wakehint" style="margin:6px 0 0">
+    Tap <span class="wk">awake</span> beside a container below to watch it.
   </div>
 </div>
 
@@ -134,14 +160,38 @@ async function refresh(){
   document.getElementById("r-vpn").style.display=(st.vpn==="yes")?"flex":"none";
   document.getElementById("auto").checked=(st.autostart==="on");
   document.getElementById("sshd").checked=(st.sshd==="on");
+
+  var wsel=document.getElementById("wake");
+  wsel.value=st.wake||"off";
+  wsel.disabled=(st.wakeok!=="yes");
+  var ws=document.getElementById("s-wake");
+  if(st.wakeok!=="yes"){ws.textContent="unsupported";ws.className="v bad";}
+  else mark(ws,st.wakeheld==="yes","held — awake","not held");
+  // Only meaningful in auto mode; in off/always the per-container pills do
+  // nothing, so say so rather than leaving dead controls on screen.
+  var watched=(st.wakelist||"").split(/\s+/).filter(Boolean);
+  var autoMode=(st.wake==="auto");
+  document.getElementById("wakehint").style.display=autoMode?"":"none";
+
   document.getElementById("sub").textContent="raphael · "+(st.daemon==="ok"?"Docker running":"Docker stopped");
   var box=document.getElementById("cts");
   if(!cts.length){box.textContent=st.daemon==="ok"?"none":"start Docker to see containers";box.className="sub";}
   else{box.className="";box.innerHTML=cts.map(function(c){
     var p=c.split("|");
     var up=/^Up/.test(p[1]||"");
-    return '<div class="ct"><span class="n">'+esc(p[0])+'</span><span class="s '+(up?"ok":"dim")+'">'+esc(p[1]||"")+'</span></div>';
-  }).join("");}
+    var name=p[0]||"";
+    var on=watched.indexOf(name)>=0;
+    return '<div class="ct"><span class="meta"><span class="n">'+esc(name)+'</span><br>'+
+      '<span class="s '+(up?"ok":"dim")+'">'+esc(p[1]||"")+'</span></span>'+
+      '<span class="wk'+(on?" on":"")+(autoMode?"":" dis")+'" data-ct="'+esc(name)+'">'+
+      (on?"awake ✓":"awake")+'</span></div>';
+  }).join("");
+  box.querySelectorAll(".wk").forEach(function(el){
+    el.onclick=function(){
+      var n=el.getAttribute("data-ct");
+      run("wake "+(el.classList.contains("on")?"rm ":"add ")+n,"wakelock "+n);
+    };
+  });}
 }
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
 
@@ -150,6 +200,9 @@ document.getElementById("auto").addEventListener("change",function(e){
 });
 document.getElementById("sshd").addEventListener("change",function(e){
   run("ssh "+(e.target.checked?"on":"off"),"ssh server");
+});
+document.getElementById("wake").addEventListener("change",function(e){
+  run("wake "+e.target.value,"wakelock mode");
 });
 document.getElementById("b-start").onclick =function(){run("start","starting Docker");};
 document.getElementById("b-stop").onclick  =function(){run("stop","stopping Docker");};

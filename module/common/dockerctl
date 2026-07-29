@@ -17,7 +17,7 @@
 set -u
 D=/data/adb/docker
 . "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"
-. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"
+. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"
 
 [ "$(id -u)" = 0 ] || { bad "must run as root: su -c 'dockerctl $*'"; exit 1; }
 
@@ -54,6 +54,18 @@ case "$cmd" in
       status) [ -f "$STATE/autostart" ] && ok "autostart ON" || bad "autostart OFF" ;;
       *)      bad "usage: dockerctl autostart on|off|status"; exit 1 ;;
     esac ;;
+  wake)
+    # Android suspends ~2.5x/second with no wakelock held, freezing containers
+    # mid-work. `auto` is the sane default: stay awake only while something you
+    # named is actually running.
+    case "${1:-status}" in
+      off|auto|always) wake_set "$1" && ok "wakelock mode: $1" ;;
+      add)    shift; wake_add "${1:-}"  && { wake_sync; ok "watching ${1:-}"; } ;;
+      rm)     shift; wake_rm  "${1:-}"  && { wake_sync; ok "no longer watching ${1:-}"; } ;;
+      sync)   wake_sync; wake_status ;;
+      status) wake_status ;;
+      *)      bad "usage: dockerctl wake off|auto|always|add <ct>|rm <ct>|status"; exit 1 ;;
+    esac ;;
   json)
     # Machine-readable state for the WebUI: one key=value per line, so the page
     # parses a single call instead of shelling out six times.
@@ -63,6 +75,11 @@ case "$cmd" in
     printf 'net=%s\n'       "$(net_check >/dev/null 2>&1 && echo ok || echo no)"
     printf 'autostart=%s\n' "$([ -f "$STATE/autostart" ] && echo on || echo off)"
     printf 'sshd=%s\n' "$([ -f "$STATE/sshd" ] && echo on || echo off)"
+    printf 'wake=%s\n'      "$(wake_mode)"
+    printf 'wakeheld=%s\n'  "$(wake_held && echo yes || echo no)"
+    printf 'wakeok=%s\n'    "$(wake_supported && echo yes || echo no)"
+    # Space-separated so the page can test membership without a second call.
+    printf 'wakelist=%s\n'  "$(wake_list | tr '\n' ' ')"
     printf 'uplinks=%s\n'   "$(uplinks | tr '\n' ' ')"
     printf 'vpn=%s\n'       "$(vpn_holds_root && echo yes || echo no)"
     if running; then
