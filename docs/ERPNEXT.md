@@ -27,7 +27,7 @@ adb shell 'su -c "dockerctl logs erpnext_backend_1"'
 adb shell 'su -c "dockerctl shell \"cd /opt/erpnext && ls\""'   # run a command in Debian
 ```
 
-### Five things that will bite you
+### Six things that will bite you
 
 1. **Quoting.** You are nesting shell inside `adb shell` inside `su -c` inside
    `dockerctl shell`. Parentheses and quotes break easily and the errors are
@@ -55,6 +55,13 @@ adb shell 'su -c "dockerctl shell \"cd /opt/erpnext && ls\""'   # run a command 
    Anything you would normally do with `exec`, do with `docker run` against the
    same volumes and network instead. This also means exec gives you a view of
    Android's filesystem, which is the opposite of isolation.
+
+   A corollary: **image healthchecks are all `docker exec`**, so anything with a
+   `HEALTHCHECK` reports `(unhealthy)` forever. `erpnext_db_1` shows
+   `exec: "healthcheck.sh": executable file not found in $PATH` — the file exists
+   in the image, exec is just looking in Android's `/`. Ignore the status and
+   probe the service directly; a `depends_on: condition: service_healthy` will
+   deadlock and must be dropped.
 
 4. **Android paranoid networking.** Creating a network socket requires the
    `inet` group (GID 3003) or `CAP_NET_RAW`. Containers whose image runs as a
@@ -147,17 +154,55 @@ docker run --rm -v erpnext_sites:/home/frappe/frappe-bench/sites \
   bench --site frontend install-app india_compliance
 ```
 
-Expect 10+ minutes. **If step 3 fails partway** the app is left half-installed:
-it registers in `list-apps` but its custom fields were never created, and every
-later `migrate` then dies with
-`Field enable_audit_trail does not exist on Accounts Settings`.
-`--skip-failing` does not help, because that is a DocType sync failure, not a
-patch. Uninstall the app and install once, cleanly.
+Expect 10+ minutes.
 
-Verify:
+### Recovering a half-installed india_compliance
+
+Step 3 often dies partway (`Could not find DocType: Bill of Entry`). What you are
+left with is **not** a failed install — `install-app` syncs the DocTypes and marks
+every patch in `Patch Log` *before* calling `after_install()`, so the app looks
+installed while the entire `after_install()` body never ran. The first thing that
+body does is `setup_audit_trail()`, so the tell is that
+`Accounts Settings.enable_audit_trail` does not exist, and every later `migrate`
+dies with `Field enable_audit_trail does not exist on Accounts Settings`.
+
+`--skip-failing` cannot help: nothing failed *as a patch*. A full
+uninstall/reinstall also is not needed. **Just re-run the hook** — it is
+idempotent (`create_custom_fields(update=True)`), and `run_post_install_patches()`
+no-ops unless a Company with `country = India` exists:
 
 ```sh
-adb shell 'su -c "dockerctl exec erpnext_backend_1 bench --site frontend list-apps"'
+docker run --rm -v erpnext_sites:/home/frappe/frappe-bench/sites \
+  -v erpnext_logs:/home/frappe/frappe-bench/logs \
+  --network erpnext_frappe_network erpnext-india:v16 \
+  bench --site frontend execute india_compliance.install.after_install
+```
+
+It should print `Setting up Income Tax... / Setting up GST... / Patching Existing
+Data... / Thank you for installing India Compliance!`. Then `bench ... migrate`
+and restart the app containers.
+
+Diagnose and verify against the database, **not** `bench --site ... console`
+(it reads stdin as a TTY, so a heredoc just makes it exit) and **not**
+`docker exec` (broken here — see gotcha 3). Credentials are in
+`sites/frontend/site_config.json`; the compose network alias for the DB is `db`:
+
+```sh
+docker run --rm --network erpnext_frappe_network mariadb:11.8 \
+  mariadb -hdb -u<db_user> -p<db_password> <db_name> -e '
+SELECT (SELECT COUNT(*) FROM `tabCustom Field`
+          WHERE dt="Accounts Settings" AND fieldname="enable_audit_trail") AS audit_field,
+       (SELECT COUNT(*) FROM `tabCustom Field`)     AS all_custom_fields,
+       (SELECT COUNT(*) FROM `tabProperty Setter`)  AS property_setters\G'
+```
+
+Healthy is `audit_field=1` and custom fields in the **hundreds** (~480). A
+half-install shows `0` and ~14. Confirm the app list with a fresh container:
+
+```sh
+docker run --rm -v erpnext_sites:/home/frappe/frappe-bench/sites \
+  --network erpnext_frappe_network erpnext-india:v16 \
+  bench --site frontend list-apps
 ```
 
 `frappe`, `erpnext` and `india_compliance` should all be listed.
