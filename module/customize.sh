@@ -47,6 +47,28 @@ esac
 # A/B devices need slot handling this installer does not implement.
 [ -z "$(getprop ro.boot.slot_suffix)" ] || abort "  A/B slot device - not supported by this installer."
 
+# --- Android version guard --------------------------------------------------
+# This kernel is built from the ROM tree's 16.2 branch. The same tree carries a
+# separate 17.0 branch because the kernel genuinely differs between releases,
+# and Android's userspace expectations move with it -- netbpfload alone gates on
+# the API level and demands eBPF features accordingly. Installing an A16 kernel
+# under an A17 userspace is a plausible bootloop, so make it a deliberate act
+# rather than a surprise.
+SDK=$(getprop ro.build.version.sdk)
+REL=$(getprop ro.build.version.release)
+ui_print "  android: $REL (sdk $SDK)"
+if [ "$SDK" != "36" ]; then
+  ui_print " "
+  ui_print "  !! This build targets Android 16 (sdk 36). You are on sdk $SDK."
+  ui_print "  !! Expect a bootloop. Build from the tree's 17.0 branch instead"
+  ui_print "  !! if you are on Android 17 - see docs/BUILDING.md."
+  if ask "Continue anyway? You have a boot backup either way."; then
+    ui_print "    continuing at your own risk"
+  else
+    abort "  Aborted."
+  fi
+fi
+
 MB=/data/adb/ksu/bin/magiskboot
 [ -x "$MB" ] || MB=/data/adb/magisk/magiskboot
 [ -x "$MB" ] || abort "  magiskboot not found (need KernelSU or Magisk)."

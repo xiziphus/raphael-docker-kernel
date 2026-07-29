@@ -1,6 +1,6 @@
 id=docker_kernel
 name=Docker for Android (raphael)
-version=v1.2.2
-versionCode=12002
+version=v1.3.0
+versionCode=13000
 author=raphael-docker
 description=All-in-one: patches your boot image with a container-capable kernel, then installs Docker in a Debian chroot. Your ramdisk, DTB and security patch level are preserved - only the kernel is replaced. Control everything with: dockerctl

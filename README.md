@@ -26,20 +26,90 @@ Verified on Project Infinity-X 3.11 / Android 16 / `4.14.356-openela-rc1-perf`:
 ERPNext idles at **~534 MB** across all eleven containers and answers HTTP 200
 from another machine on the network.
 
-## Install
+## Which path applies to you
 
-You need an unlocked bootloader and KernelSU already working.
+Everything hinges on one question: **do you already have KernelSU working?**
 
-1. Install a recent **KernelSU-Next** manager. It does not have to match the
-   kernel's version — a v3.1.0 manager drives a v3.2.0 kernel fine.
-2. KernelSU app → **Modules** → install `raphael-docker-kernel-vX.Y.Z.zip`.
-3. Answer the prompts with the volume keys.
-4. Reboot.
-5. `su -c 'dockerctl setup'` — one-time, downloads Debian and Docker (~550 MB).
-6. `su -c 'dockerctl start'`
+This is a 4.14 kernel, which is *not* GKI. KernelSU therefore has to be
+**compiled into the kernel** — it cannot be added as a loadable module the way
+it can on GKI 5.10+ devices. So if you have no root today, you cannot install a
+KernelSU module to get it: you have to flash a kernel that already contains it.
 
-For a web UI: `su -c 'dockerctl ui start'`, then
-`su -c 'dockerctl ui admin YOUR-PASSWORD'` and open `http://127.0.0.1:9000`.
+Check by installing the **KernelSU-Next** manager app and opening it. It will
+either report a version (you have root) or say it is not installed.
+
+| Your situation | Path |
+|---|---|
+| Infinity-X 3.11, **no root** | **A** — fastboot once, then the zip |
+| Any raphael ROM, **KernelSU already working** | **B** — just the zip |
+| Running a LineageOS / SOVIET / other custom kernel, with root | **B** — the zip replaces whatever kernel you have |
+| **Android 17** | **C** — build it yourself; this release is Android 16 only |
+
+---
+
+### Path A — Infinity-X 3.11 with no root
+
+You need a KernelSU-enabled kernel before a KernelSU module can run, so this
+one time you must use a PC.
+
+```sh
+# 1. Back up your current boot partition FIRST
+adb reboot bootloader
+# (from another terminal, with the phone in fastboot)
+
+# 2. Flash the prebuilt image - this gives you BOTH KernelSU and Docker support
+fastboot flash boot boot-INFINITYX-3.11-ONLY.img
+fastboot reboot
+```
+
+That image is safe **only** on Infinity-X 3.11 exactly, because it carries that
+build's ramdisk, DTB and security patch level. On any other build it will
+bootloop, or make `/data` unreadable.
+
+```
+3. Install the KernelSU-Next manager app, open it - it should now show a version
+4. KernelSU app -> Modules -> install raphael-docker-kernel-vX.Y.Z.zip
+   (it will detect the kernel is already capable and skip the kernel step)
+5. Reboot, then open the module and tap ACTION -> install Docker
+```
+
+### Path B — you already have KernelSU
+
+No PC needed at all.
+
+```
+1. KernelSU app -> Modules -> Install from storage
+2. Pick raphael-docker-kernel-vX.Y.Z.zip
+3. It asks: "Patch your boot image with the Docker kernel?"  -> VOL+ (yes)
+   It asks: "Start Docker automatically at every boot?"      -> your choice
+4. Reboot
+5. Open the module in the KernelSU app -> tap ACTION -> install Docker (~550 MB)
+6. Tap ACTION again any time to start/stop, open the web UI, or repair
+```
+
+This replaces **only the kernel**. Whatever you are running now — the ROM's own
+kernel, a LineageOS build, SOVIET, anything — is swapped out while your ramdisk,
+DTB and security patch level are kept exactly as they were. Your previous boot
+image is saved to `/data/adb/docker/boot-backup-<timestamp>.img`.
+
+Coming from a non-Infinity-X ROM is untested. The kernel is built from the
+raphael tree and preserves your ramdisk, so it should work — but you have the
+backup, and you should copy it off the phone before you start.
+
+### Path C — Android 17
+
+Do not install this release. It is built from the kernel tree's `16.2` branch;
+Android 17 needs `17.0`. The installer will warn you and make you confirm.
+See [docs/BUILDING.md](docs/BUILDING.md) — change the branch, build, then
+`tools/make-zip.sh`.
+
+## After it is installed
+
+Everything runs through one command, or the ACTION button in the KernelSU app.
+
+For the web UI: tap **ACTION** and choose the web UI, or from a shell
+`su -c 'dockerctl ui start'` then `su -c 'dockerctl ui admin YOUR-PASSWORD'`,
+and open `http://127.0.0.1:9000` on the phone.
 
 ### You need root for those commands
 
