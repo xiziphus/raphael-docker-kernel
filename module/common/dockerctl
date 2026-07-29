@@ -1,0 +1,56 @@
+#!/system/bin/sh
+##########################################################################
+# dockerctl - one entry point for Docker on Android.
+#
+#   dockerctl setup [rootfs.tar.xz]   one-time: Debian + Docker
+#   dockerctl start | stop | restart  the daemon (applies net rules too)
+#   dockerctl status                  short summary
+#   dockerctl doctor [--fix]          check every prerequisite; repair
+#   dockerctl net apply|check|clear   Android routing/firewall rules
+#   dockerctl ui start|stop|status    Portainer
+#   dockerctl ui admin <password>     create the Portainer admin, no browser
+#   dockerctl shell                   a shell in the Debian chroot
+#   dockerctl <anything else>         passed to docker in the chroot
+##########################################################################
+set -u
+D=/data/adb/docker
+. "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"
+. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"
+
+[ "$(id -u)" = 0 ] || { bad "must run as root: su -c 'dockerctl $*'"; exit 1; }
+
+cmd="${1:-status}"; [ $# -gt 0 ] && shift
+
+case "$cmd" in
+  setup)   do_setup "${1:-}" ;;
+  start)   daemon_start ;;
+  stop)    daemon_stop ;;
+  restart) daemon_stop; daemon_start ;;
+  doctor)  do_doctor "${1:-}" ;;
+  shell)   in_chroot ;;
+  net)
+    case "${1:-check}" in
+      apply) net_apply && ok "rules applied for $POOL" ;;
+      check) net_check ;;
+      clear) net_clear; ok "rules removed" ;;
+      *)     bad "usage: dockerctl net apply|check|clear"; exit 1 ;;
+    esac ;;
+  ui)
+    case "${1:-status}" in
+      start)  ui_start ;;
+      stop)   ui_stop ;;
+      status) ui_status ;;
+      admin)  shift; ui_admin "${1:-}" ;;
+      open)   am start -a android.intent.action.VIEW -d http://127.0.0.1:9000 >/dev/null 2>&1
+              ok "opened in browser" ;;
+      *)      bad "usage: dockerctl ui start|stop|status|admin <pw>|open"; exit 1 ;;
+    esac ;;
+  status)
+    have_rootfs && ok "rootfs $ROOT" || bad "no rootfs (dockerctl setup)"
+    running     && ok "dockerd running" || bad "dockerd stopped"
+    net_check >/dev/null 2>&1 && ok "network rules applied" || bad "network rules missing"
+    running && in_chroot 'docker ps --format "  {{.Names}}  {{.Status}}"' 2>/dev/null ;;
+  # Anything unrecognised goes straight to the docker CLI, so
+  # "dockerctl ps", "dockerctl logs x", "dockerctl compose ..." all work.
+  *) in_chroot_exec docker "$cmd" "$@" ;;
+esac
