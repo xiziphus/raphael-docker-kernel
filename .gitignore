@@ -1,0 +1,30 @@
+# Build output — these belong in a GitHub Release, never in git history.
+dist/
+*.img
+*.zip
+Image.gz
+Image
+
+# External kernel tree and toolchain: cloned, never vendored.
+kernel_source/
+infinityx_kernel/
+lineage_sm8150/
+clang-*/
+out/
+
+# The case-sensitive APFS sparse image used to host the kernel tree.
+# exFAT cannot hold a Linux source tree: 4.14 netfilter alone ships both
+# xt_CONNMARK.h and xt_connmark.h, and on a case-insensitive volume one
+# silently overwrites the other.
+build.sparseimage
+/Volumes/
+
+# Device-specific dumps. Yours will differ; never commit someone else's.
+backups/
+builds/
+boot_extracted/
+*.log
+
+# macOS on exFAT writes an AppleDouble sidecar next to every file.
+._*
+.DS_Store

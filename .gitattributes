@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.sh      text eol=lf
+*.py      text eol=lf
+*.config  text eol=lf
+dockerctl text eol=lf
+*.img     binary
+*.zip     binary
+*.gz      binary
