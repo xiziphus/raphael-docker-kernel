@@ -223,6 +223,31 @@ removing the module touches neither, so your images and containers survive.
 `raphael` only. The installer refuses to run on anything else — the kernel is
 built from this device's tree and would not boot elsewhere.
 
+## Snapshotting your stack
+
+[`tools/state-snapshot.sh`](tools/state-snapshot.sh) captures the running state
+— database dump, small volumes, compose file, tunnel config, and a full
+`docker inspect` of every container — into a **git repo on the device**, so
+`git log` becomes the machine's history and `git diff` shows what changed
+between two points. Install it in the chroot as `/usr/local/bin/state-snapshot`
+and run it before anything risky:
+
+```sh
+ssh raphael 'state-snapshot "before upgrading erpnext"'
+```
+
+It commits nothing when nothing changed, so running it often costs nothing. The
+database is dumped **uncompressed** on purpose: git deltas plain SQL well, so a
+15 MB dump across several snapshots packs to a couple of MB, whereas each
+`.sql.gz` would be an opaque full-size blob.
+
+Two things it deliberately does not do. It never tars `erpnext_db-data` — a tar
+of a live datadir is neither consistent nor portable, and the SQL dump is the
+restorable form. And it cannot see Android's `/data`, since the chroot has no
+view of it, so `/data/adb/docker` and the boot partition still need adb.
+
+That repo holds live credentials by design. Keep it off any public remote.
+
 ## Building it yourself
 
 See [docs/BUILDING.md](docs/BUILDING.md). Short version: the kernel comes from
