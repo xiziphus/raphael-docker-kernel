@@ -11,32 +11,32 @@
 # at boot, on every daemon start, and by 'dockerctl doctor --fix'.
 
 net_apply() {
-    _ifaces=$(uplinks)
-    [ -n "$_ifaces" ] || { warn "no uplink with a default route"; return 1; }
-
-    # Return path: replies are un-NAT'd back to a container address and then
-    # need the bridge route, which exists only in table main.
+    # These two do NOT depend on an uplink, so install them first and always.
+    # At boot this function runs before Wi-Fi has associated; bailing early on a
+    # missing uplink used to leave NOTHING installed, and the daemon then came
+    # up with container networking silently broken.
     ip rule del to "$POOL" lookup main 2>/dev/null
     ip rule add to "$POOL" lookup main priority 11400 2>/dev/null
 
-    # Egress: one rule per uplink, Wi-Fi first. A table with no default route
-    # falls through to the next rule, so Wi-Fi <-> mobile failover is automatic.
+    iptables -D FORWARD -s "$POOL" -j ACCEPT 2>/dev/null
+    iptables -D FORWARD -d "$POOL" -j ACCEPT 2>/dev/null
+    iptables -I FORWARD 1 -s "$POOL" -j ACCEPT 2>/dev/null
+    iptables -I FORWARD 2 -d "$POOL" -j ACCEPT 2>/dev/null
+
+    # Egress needs a live uplink. One rule per interface that owns a default
+    # route, Wi-Fi first: a table with no default falls through to the next
+    # rule, so Wi-Fi <-> mobile failover needs no reconfiguration.
+    _ifaces=$(uplinks)
+    if [ -z "$_ifaces" ]; then
+        warn "no uplink yet - egress rules deferred until one appears"
+        return 1
+    fi
     _p=11500
     for i in $_ifaces; do
         ip rule del from "$POOL" lookup "$i" 2>/dev/null
         ip rule add from "$POOL" lookup "$i" priority "$_p" 2>/dev/null
         _p=$((_p+1))
     done
-
-    # FORWARD reaches Android's tetherctrl_FORWARD -- which ends in "DROP all"
-    # because tethering is off -- before anything Docker installs. Jump ahead of
-    # it. Matching on subnet rather than interface covers docker0 and every
-    # br-<id> that compose creates. Docker's own DOCKER chain still decides
-    # which published ports are reachable, so this exposes nothing extra.
-    iptables -D FORWARD -s "$POOL" -j ACCEPT 2>/dev/null
-    iptables -D FORWARD -d "$POOL" -j ACCEPT 2>/dev/null
-    iptables -I FORWARD 1 -s "$POOL" -j ACCEPT 2>/dev/null
-    iptables -I FORWARD 2 -d "$POOL" -j ACCEPT 2>/dev/null
     return 0
 }
 

@@ -27,7 +27,7 @@ case "$cmd" in
   stop)    daemon_stop ;;
   restart) daemon_stop; daemon_start ;;
   doctor)  do_doctor "${1:-}" ;;
-  shell)   in_chroot ;;
+  shell)   in_chroot "$@" ;;
   net)
     case "${1:-check}" in
       apply) net_apply && ok "rules applied for $POOL" ;;

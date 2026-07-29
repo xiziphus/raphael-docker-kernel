@@ -15,15 +15,31 @@ warn() { echo "  [warn] $*"; }
 bad()  { echo "  [FAIL] $*"; }
 
 # --- uplinks ---------------------------------------------------------------
-# Android keeps a routing table per network. Return every interface that owns a
-# default route, Wi-Fi first. Rules are installed for ALL of them: if a table
-# has no default route the lookup falls through to the next rule, so switching
-# between Wi-Fi and mobile data needs no reconfiguration.
+# Emit the routing TABLE for every interface that owns a default route, Wi-Fi
+# first. Two things this deliberately avoids:
+#
+#   - Looking tables up BY NAME ("ip route show table wlan0"). That depends on
+#     netd's name map in /data/misc/net/rt_tables, which is not reliably
+#     resolvable from the boot service; egress rules were silently never
+#     installed as a result. Parsing "table all" yields the identifier directly
+#     and `ip rule lookup` accepts a name or a number equally.
+#   - dummy0, which also carries a default route and would blackhole every
+#     container packet if it were ever chosen.
+#
+# Rules are installed for ALL of them: a table with no default route falls
+# through to the next rule, so Wi-Fi <-> mobile failover is automatic.
 uplinks() {
-    for i in wlan0 rmnet_data0 rmnet_data1 rmnet_data2 rmnet_data3 \
-             rmnet_data4 rmnet_data5 rmnet_data6 rmnet_data7 eth0; do
-        ip route show table "$i" 2>/dev/null | grep -q '^default' && echo "$i"
-    done
+    ip -4 route show table all 2>/dev/null | awk '
+        /^default/ {
+            dev=""; tbl="";
+            for (i = 1; i <= NF; i++) {
+                if ($i == "dev")   dev = $(i+1);
+                if ($i == "table") tbl = $(i+1);
+            }
+            if (tbl == "" || dev == "")      next;
+            if (dev ~ /^(dummy|lo|tun)/)     next;
+            print (dev ~ /^wlan/ ? 0 : 1) " " tbl;
+        }' | sort -s -k1,1n | cut -d" " -f2 | awk "!seen[\$0]++"
 }
 
 # --- a VPN holding uid 0 breaks dockerd -------------------------------------

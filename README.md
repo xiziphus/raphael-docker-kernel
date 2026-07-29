@@ -41,6 +41,19 @@ You need an unlocked bootloader and KernelSU already working.
 For a web UI: `su -c 'dockerctl ui start'`, then
 `su -c 'dockerctl ui admin YOUR-PASSWORD'` and open `http://127.0.0.1:9000`.
 
+### You need root for those commands
+
+`dockerctl` manages mounts, routing rules and the boot partition, so it runs as
+root. Two ways to get there:
+
+- **No shell needed** — in the KernelSU manager, open this module and tap
+  **Action**. It walks you through setup, start/stop, the web UI and repairs
+  using the volume keys. This is the easiest path and needs no grant.
+- **From a shell** — grant root to your terminal app (or **Shell** for `adb`)
+  in the KernelSU manager first, under *SuperUser*. Without it, `su` fails with
+  `inaccessible or not found`, which looks like the module is broken when it
+  is not.
+
 ### It patches your boot image; it does not replace it
 
 The installer reads your current boot partition, swaps in only the kernel, and
@@ -93,10 +106,42 @@ looks like a permissions bug. It checks causes directly:
   blockers included) may capture uid 0 into a `tun` with no default route;
   dockerd then fails DNS with `network is unreachable`. `dockerctl doctor`
   detects and reports this.
+- **Published ports are not reachable from your LAN.** `-p 8080:80` works on
+  the phone itself but not from another machine, even though `docker-proxy` is
+  bound, the DNAT rule is installed and nothing is dropping the packets. Root
+  cause not yet found. Two things that *do* work: run the container with
+  `--network=host` and it is reachable normally, or use a Cloudflare/Tailscale
+  tunnel, which connects outbound and does not need inbound ports at all.
 - **Autostart is off by default.** dockerd and containerd cost real battery.
   `touch /data/adb/docker/autostart` to enable.
 - **Android may reclaim memory** under pressure and kill containers. This is a
   phone.
+
+## If it goes wrong
+
+Your original boot image is saved before anything is written:
+
+```
+/data/adb/docker/boot-backup-<timestamp>.img
+```
+
+Pull a copy off the device now, while everything works — a backup that only
+exists on the phone is not a backup:
+
+```sh
+adb shell 'su -c "cp /data/adb/docker/boot-backup-*.img /sdcard/"'
+adb pull /sdcard/boot-backup-*.img
+```
+
+To restore, from fastboot:
+
+```sh
+fastboot flash boot boot-backup-<timestamp>.img
+```
+
+The device is non-A/B, so there is a single `boot` partition and no slot to
+worry about. Everything else lives in `/data/debian` and `/data/adb/docker`;
+removing the module touches neither, so your images and containers survive.
 
 ## Device support
 
