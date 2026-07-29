@@ -38,12 +38,18 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:
 .ct .n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ct .meta{flex:1;min-width:0}
 .ct .s{color:var(--dim);font-size:12px}
-/* Per-container "keep awake" pill. A full switch per row is too big on a phone
-   and too easy to hit by accident while scrolling. */
-.wk{flex:0 0 auto;border:1px solid var(--line);border-radius:20px;padding:4px 9px;
- font-size:11px;color:var(--dim);cursor:pointer;user-select:none;white-space:nowrap}
+/* Per-container "keep awake" pill. Sized to the 48dp minimum touch target --
+   an earlier version was 11px text with 4px padding, well under it, in a
+   scrolling list where a mis-tap changes power behaviour. */
+.wk{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ min-height:44px;min-width:76px;padding:0 12px;border:1px solid var(--line);
+ border-radius:22px;font-size:12px;color:var(--dim);cursor:pointer;
+ user-select:none;white-space:nowrap}
 .wk.on{border-color:var(--ok);color:var(--ok)}
-.wk.dis{opacity:.35;pointer-events:none}
+/* Deliberately NOT pointer-events:none when inactive. You pick which containers
+   matter and THEN turn auto on; disabling the pills outside auto mode inverts
+   that order and leaves you unable to build the list at all. */
+.wk.idle{opacity:.5}
 select{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);
  background:var(--bg);color:var(--fg);font-size:14px}
 a{color:var(--accent)}
@@ -67,7 +73,8 @@ a{color:var(--accent)}
     <label class="sw"><input type="checkbox" id="auto"><span class="sl"></span></label>
   </div>
   <div class="row">
-    <span class="k">SSH server<br><span style="font-size:12px;color:var(--dim)">root shell on loopback, key auth only &mdash; reach it via a tunnel</span></span>
+    <span class="k">SSH server<br><span style="font-size:12px;color:var(--dim)">root shell on loopback, key auth only &mdash; reach it via a tunnel</span>
+      <br><span class="v" id="sshnote" style="font-size:12px"></span></span>
     <label class="sw"><input type="checkbox" id="sshd"><span class="sl"></span></label>
   </div>
   <div class="btns">
@@ -160,6 +167,12 @@ async function refresh(){
   document.getElementById("r-vpn").style.display=(st.vpn==="yes")?"flex":"none";
   document.getElementById("auto").checked=(st.autostart==="on");
   document.getElementById("sshd").checked=(st.sshd==="on");
+  // Enabled but not listening is the interesting failure - say so rather than
+  // showing a green toggle for something that is not running.
+  var sn=document.getElementById("sshnote");
+  if(st.sshd==="on"&&st.sshdrun!=="yes"){sn.textContent="enabled but NOT listening — tap off/on to repair";sn.className="v bad";}
+  else if(st.sshdrun==="yes"){sn.textContent="listening on 127.0.0.1:2222";sn.className="v ok";}
+  else {sn.textContent="";sn.className="v";}
 
   var wsel=document.getElementById("wake");
   wsel.value=st.wake||"off";
@@ -167,11 +180,15 @@ async function refresh(){
   var ws=document.getElementById("s-wake");
   if(st.wakeok!=="yes"){ws.textContent="unsupported";ws.className="v bad";}
   else mark(ws,st.wakeheld==="yes","held — awake","not held");
-  // Only meaningful in auto mode; in off/always the per-container pills do
-  // nothing, so say so rather than leaving dead controls on screen.
+  // The watch list is editable in every mode -- it only takes EFFECT in auto,
+  // which the hint explains. Gating the pills on auto would mean you had to
+  // enable auto (holding the lock for nothing) before you could choose what it
+  // should watch.
   var watched=(st.wakelist||"").split(/\s+/).filter(Boolean);
   var autoMode=(st.wake==="auto");
-  document.getElementById("wakehint").style.display=autoMode?"":"none";
+  document.getElementById("wakehint").innerHTML = autoMode
+    ? 'Tap <span class="wk on" style="display:inline-flex;min-height:0;min-width:0;padding:2px 8px">awake</span> beside a container to watch it.'
+    : 'Watch list applies only in <b>While watched containers run</b> mode.';
 
   document.getElementById("sub").textContent="raphael · "+(st.daemon==="ok"?"Docker running":"Docker stopped");
   var box=document.getElementById("cts");
@@ -183,7 +200,7 @@ async function refresh(){
     var on=watched.indexOf(name)>=0;
     return '<div class="ct"><span class="meta"><span class="n">'+esc(name)+'</span><br>'+
       '<span class="s '+(up?"ok":"dim")+'">'+esc(p[1]||"")+'</span></span>'+
-      '<span class="wk'+(on?" on":"")+(autoMode?"":" dis")+'" data-ct="'+esc(name)+'">'+
+      '<span class="wk'+(on?" on":"")+(autoMode?"":" idle")+'" data-ct="'+esc(name)+'">'+
       (on?"awake ✓":"awake")+'</span></div>';
   }).join("");
   box.querySelectorAll(".wk").forEach(function(el){

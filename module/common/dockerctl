@@ -75,6 +75,9 @@ case "$cmd" in
     printf 'net=%s\n'       "$(net_check >/dev/null 2>&1 && echo ok || echo no)"
     printf 'autostart=%s\n' "$([ -f "$STATE/autostart" ] && echo on || echo off)"
     printf 'sshd=%s\n' "$([ -f "$STATE/sshd" ] && echo on || echo off)"
+    # Enabled-at-boot and actually-listening are different things, and the UI
+    # showed a green toggle for an sshd that was never installed. Report both.
+    printf 'sshdrun=%s\n' "$(in_chroot 'pgrep -x sshd >/dev/null' >/dev/null 2>&1 && echo yes || echo no)"
     printf 'wake=%s\n'      "$(wake_mode)"
     printf 'wakeheld=%s\n'  "$(wake_held && echo yes || echo no)"
     printf 'wakeok=%s\n'    "$(wake_supported && echo yes || echo no)"
@@ -100,13 +103,59 @@ case "$cmd" in
     # so remote access survives a reboot -- otherwise an unattended restart
     # leaves the device unreachable until someone plugs in USB.
     case "${1:-status}" in
-      on)  touch "$STATE/sshd"
-           in_chroot 'mkdir -p /run/sshd; pgrep -x sshd >/dev/null || /usr/sbin/sshd'
-           ok "sshd enabled and started" ;;
+      on)
+           # setup.sh installs only docker.io and iptables, so on a fresh rootfs
+           # /usr/sbin/sshd does not exist. The previous version touched the
+           # state file and printed ok unconditionally, so the toggle went green
+           # and json reported sshd=on while nothing was listening.
+           if ! in_chroot 'test -x /usr/sbin/sshd' >/dev/null 2>&1; then
+               say "  installing openssh-server (needs network, may take a minute)"
+               in_chroot 'export DEBIAN_FRONTEND=noninteractive
+                          apt-get update >/dev/null 2>&1
+                          apt-get install -y openssh-server >/dev/null 2>&1' || true
+           fi
+           if ! in_chroot 'test -x /usr/sbin/sshd' >/dev/null 2>&1; then
+               bad "openssh-server not installed - check network and retry"
+               exit 1
+           fi
+           # Debian's stock config listens on 0.0.0.0 with password auth. The
+           # chroot shares Android's netstack (no netns of its own), so that
+           # would put a root shell on the LAN. Pin it to loopback and keys.
+           #
+           # Only if nothing already sets Port: sshd treats repeated Port as
+           # ADDITIVE, so writing ours alongside an existing drop-in asks it to
+           # bind the same port twice and it fails to start. Respect whatever
+           # the user configured rather than fighting it.
+           in_chroot 'mkdir -p /etc/ssh/sshd_config.d /run/sshd
+             if ! grep -rqsE "^[[:space:]]*Port[[:space:]]+[0-9]" \
+                    /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null; then
+                 cat > /etc/ssh/sshd_config.d/99-android.conf <<CONF
+ListenAddress 127.0.0.1
+Port 2222
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+CONF
+             fi
+             # Never restart into a broken config - a bad drop-in would leave
+             # the device unreachable with no way back in but USB.
+             /usr/sbin/sshd -t 2>&1 || { echo "sshd config invalid, not starting"; exit 1; }
+             pgrep -x sshd >/dev/null || /usr/sbin/sshd'
+           if in_chroot 'pgrep -x sshd >/dev/null' >/dev/null 2>&1; then
+               touch "$STATE/sshd"
+               ok "sshd listening on 127.0.0.1:2222 (key auth only)"
+               in_chroot 'test -s /root/.ssh/authorized_keys' >/dev/null 2>&1 \
+                 || warn "no authorized_keys yet - nothing can log in until you add one"
+           else
+               bad "sshd failed to start"; exit 1
+           fi ;;
       off) rm -f "$STATE/sshd"; in_chroot 'pkill -x sshd' >/dev/null 2>&1; ok "sshd disabled" ;;
       status)
            [ -f "$STATE/sshd" ] && ok "sshd enabled at boot" || bad "sshd not enabled at boot"
-           in_chroot 'pgrep -x sshd >/dev/null && echo "  running" || echo "  not running"' ;;
+           in_chroot 'pgrep -x sshd >/dev/null && echo "  running" || echo "  not running"
+                      test -s /root/.ssh/authorized_keys \
+                        && echo "  authorized_keys: $(grep -c . /root/.ssh/authorized_keys) key(s)" \
+                        || echo "  authorized_keys: EMPTY - no login possible"' ;;
       *)   bad "usage: dockerctl ssh on|off|status"; exit 1 ;;
     esac ;;
   status)

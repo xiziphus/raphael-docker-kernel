@@ -117,7 +117,7 @@ Two further details matter:
   ordering the rules by preference gives automatic failover.
 
 `netd` rewrites its rules on every connectivity change, so these must be
-re-applied — `service.sh` re-asserts them at boot and every 120 s.
+re-applied — `service.sh` re-asserts them at boot and every 60 s.
 
 `CONFIG_BRIDGE_NETFILTER` is **not** required, despite Docker's
 `check-config.sh` flagging it. It governs filtering of traffic *bridged* between

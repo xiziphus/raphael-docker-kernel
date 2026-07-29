@@ -16,7 +16,7 @@ repairs what it can. Most problems below are things it already detects.
 | `failed to register layer ... remount /, flags: 0x84000` | chroot root is not a mount point | `dockerctl doctor --fix` |
 | `pivot_root .: invalid argument` | `DOCKER_RAMDISK` not set | `dockerctl restart` |
 | Containers have no internet | Android's routing rules were rewritten | `dockerctl net apply` |
-| Published ports unreachable from LAN | Same | `dockerctl net apply` |
+| Published ports unreachable from LAN | Known limitation, not stale rules | Run the container with `--network=host`, or expose it with `dockerctl tunnel quick`. `net apply` does **not** fix this |
 | Image pulls fail with `network is unreachable` | A VPN app captured uid 0 | Pause the VPN, or exclude root from it |
 | `docker: command not found` after reboot | Daemon not started | `dockerctl start`, or enable autostart |
 | Everything worked, now nothing does | Wi-Fi ↔ mobile switch rewrote netd's rules | `dockerctl net apply` (the boot service also re-asserts every 120 s) |

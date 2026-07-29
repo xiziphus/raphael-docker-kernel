@@ -20,7 +20,7 @@ Verified on Project Infinity-X 3.11 / Android 16 / `4.14.356-openela-rc1-perf`:
 | Docker | 20.10.24, runc 1.1.5 |
 | Storage | `overlay2` on f2fs |
 | cgroups | v2, `memory` + `pids` |
-| Networking | bridge, NAT egress, **published ports reachable from the LAN** |
+| Networking | bridge, NAT egress. **Published ports are phone-local**; use `--network=host` or a tunnel for LAN/remote |
 | Tested workload | ERPNext — 11 containers (MariaDB, 2× Redis, Frappe backend, websocket, scheduler, 2× queue workers, nginx) |
 
 ERPNext idles at **~534 MB** across all eleven containers and answers HTTP 200
