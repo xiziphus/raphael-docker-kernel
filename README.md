@@ -28,18 +28,43 @@ from another machine on the network.
 
 ## Lineage
 
-```
+```text
 Linux 4.14 LTS
  └─ OpenELA 4.14.356                     post-EOL LTS continuation
      └─ raphael-resources/android_kernel_xiaomi_sm8150 @ 16.2
-        the ROM's own tree · head 6035a52657a2 · 4.14.356-openela-rc1-perf
+        the ROM's own tree · 6035a52657a2 · 4.14.356-openela-rc1-perf
          ├─ drivers/kernelsu             KernelSU-Next, in-tree
          ├─ fs/susfs.c                   SUSFS, in-tree
-         └─ + kernel/container.config    the only kernel change this project makes
+         └─ xiziphus/android_kernel_xiaomi_sm8150 @ antigravity-v1.5.0
+            a fork, pinned. Adds one file: raphael_docker_defconfig
 ```
 
 **This project adds one config fragment.** It does not patch kernel source, and
 it does not add KernelSU or SUSFS — both are already in that tree.
+
+### Why the source is forked and pinned
+
+Releases here contain compiled kernels (`Image.gz`, a `boot.img`). GPL-2.0
+requires the *complete corresponding source* for those binaries, and a branch
+is not that: `16.2` moves, so pointing at it means the source for an old
+release becomes unobtainable the moment upstream advances.
+
+[`xiziphus/android_kernel_xiaomi_sm8150`](https://github.com/xiziphus/android_kernel_xiaomi_sm8150)
+is a fork pinned by tag. Each release names the tag it was built from.
+
+The tag's only parent is upstream `6035a52657a2`, and the single commit on top
+adds `arch/arm64/configs/raphael_docker_defconfig` — a config file, nothing
+compiled. So the binary corresponds to pristine upstream; the defconfig just
+means you can reproduce the configuration in one command instead of merging a
+fragment by hand:
+
+```sh
+make O=out ARCH=arm64 raphael_docker_defconfig
+```
+
+It was produced with `make savedefconfig` from the config that actually built
+the shipped kernel, and verified to round-trip exactly — regenerating `.config`
+from it reproduces all 6047 lines with zero differences.
 
 ### Trees that do not work, and why
 
@@ -433,5 +458,14 @@ explains it and the other Android-specific obstacles.
 
 GPL-2.0, matching the Linux kernel. See [LICENSE](LICENSE).
 
-Kernel source: [raphael-resources/android_kernel_xiaomi_sm8150](https://github.com/raphael-resources/android_kernel_xiaomi_sm8150) @ `16.2`.
-KernelSU-Next and SUSFS are already in that tree; this project does not add them.
+**Complete corresponding source** for the kernel binaries in each release is
+the tag named in that release, on
+[xiziphus/android_kernel_xiaomi_sm8150](https://github.com/xiziphus/android_kernel_xiaomi_sm8150)
+— a pinned fork of
+[raphael-resources/android_kernel_xiaomi_sm8150](https://github.com/raphael-resources/android_kernel_xiaomi_sm8150)
+`16.2`. Pinned rather than tracked because that branch has been force-pushed
+before, orphaning the commit an earlier shipped kernel was built from; a branch
+name does not survive as a source reference.
+
+KernelSU-Next and SUSFS are already in that tree; this project does not add
+them. Its own contribution is the config fragment, the module and the tooling.

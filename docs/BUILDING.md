@@ -5,9 +5,27 @@ zip. This is for changing the kernel.
 
 ## The source tree
 
+Build from the pinned fork, by tag:
+
+```sh
+git clone --depth 1 -b antigravity-v1.5.0 \
+  https://github.com/xiziphus/android_kernel_xiaomi_sm8150
 ```
-https://github.com/raphael-resources/android_kernel_xiaomi_sm8150   branch 16.2
-```
+
+Upstream is
+[raphael-resources/android_kernel_xiaomi_sm8150](https://github.com/raphael-resources/android_kernel_xiaomi_sm8150)
+branch `16.2`, and the fork is one commit ahead of `6035a52657a2` — that commit
+adds `arch/arm64/configs/raphael_docker_defconfig` and nothing else.
+
+**Use the tag, not the branch.** This is not pedantry: the commit an earlier
+shipped kernel was built from is now *orphaned*, because the branch was
+force-pushed after the ROM was released. A branch name is not a version. The
+fork exists so that every release has source that still resolves, which GPL-2.0
+requires of anyone shipping the binaries.
+
+If you build from upstream directly and the sha has moved, identify the tree by
+fingerprint — `Makefile` version quadruple, `CONFIG_LOCALVERSION="-perf"` — not
+by sha.
 
 **Not LineageOS.** A pristine 4.14 tree compiles, boots, and then bootloops at
 `bpfloader` — see [ANDROID-NOTES.md](ANDROID-NOTES.md). Verify any tree before
@@ -20,9 +38,23 @@ test -f kernel/bpf/btf.c                            # must exist
 
 `run-builder.sh` refuses to start if either check fails.
 
-Note the commit the shipped kernel was built from is orphaned — the branch was
-force-pushed after the ROM was released. Identify the tree by fingerprint
-(`Makefile` version quadruple, `CONFIG_LOCALVERSION="-perf"`), not by sha.
+### Configuring
+
+From the fork, one command:
+
+```sh
+make O=out ARCH=arm64 raphael_docker_defconfig
+```
+
+That defconfig is the device's own running config merged with
+`kernel/container.config` and passed through `olddefconfig`, captured with
+`make savedefconfig`. It round-trips exactly — regenerating `.config` from it
+reproduces all 6047 lines with zero differences.
+
+The build script still does the merge itself, starting from
+`kernel/base/infinityx-3.11.config`, because that path reports config drift and
+lints the fragment. The defconfig is the shortcut for anyone who just wants the
+same kernel.
 
 ## Toolchain
 
