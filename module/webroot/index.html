@@ -77,6 +77,11 @@ a{color:var(--accent)}
       <br><span class="v" id="sshnote" style="font-size:12px"></span></span>
     <label class="sw"><input type="checkbox" id="sshd"><span class="sl"></span></label>
   </div>
+  <div class="row">
+    <span class="k">Also reachable on the LAN<br><span style="font-size:12px;color:var(--dim)">a second way in that does not need the tunnel or Docker</span>
+      <br><span class="v" id="lannote" style="font-size:12px"></span></span>
+    <label class="sw"><input type="checkbox" id="sshlan"><span class="sl"></span></label>
+  </div>
   <div class="btns">
     <button id="b-start">Start</button>
     <button id="b-stop" class="ghost">Stop</button>
@@ -187,6 +192,11 @@ async function refresh(){
   else if(st.sshdrun==="yes"){sn.textContent="listening on 127.0.0.1:2222";sn.className="v ok";}
   else {sn.textContent="";sn.className="v";}
 
+  document.getElementById("sshlan").checked=(st.sshlan==="on");
+  var ln=document.getElementById("lannote");
+  if(st.sshlan==="on"&&st.lanip){ln.textContent="ssh -p "+(st.sshport||2222)+" root@"+st.lanip;ln.className="v ok";}
+  else {ln.textContent="";ln.className="v";}
+
   var lanEl=document.getElementById("s-lan");
   lanEl.textContent=st.lanip||"no Wi-Fi";
   lanEl.className="v "+(st.lanip?"ok":"bad");
@@ -235,6 +245,9 @@ document.getElementById("auto").addEventListener("change",function(e){
 });
 document.getElementById("sshd").addEventListener("change",function(e){
   run("ssh "+(e.target.checked?"on":"off"),"ssh server");
+});
+document.getElementById("sshlan").addEventListener("change",function(e){
+  run("ssh lan "+(e.target.checked?"on":"off"),"LAN ssh");
 });
 document.getElementById("lanwatch").addEventListener("change",function(e){
   run("lan "+(e.target.checked?"on":"off"),"LAN notify");

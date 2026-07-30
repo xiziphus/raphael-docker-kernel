@@ -26,11 +26,13 @@
 #   always  hold it unconditionally, even with Docker stopped.
 ##########################################################################
 
-WAKE_TAG=docker
+WAKE_TAG=docker                  # workload lock, driven by mode + watch list
+WAKE_TAG_LIFE=docker-lifeline    # remote-access lock, held independently
 WAKE_LOCK=/sys/power/wake_lock
 WAKE_UNLOCK=/sys/power/wake_unlock
 WAKE_MODE_F="$STATE/wake"        # contains off | auto | always
 WAKE_LIST_F="$STATE/wake.list"   # one container name per line
+WAKE_NOFLOOR_F="$STATE/wake.nofloor"   # exists = opt out of the lifeline lock
 
 wake_supported() { [ -w "$WAKE_LOCK" ] && [ -w "$WAKE_UNLOCK" ]; }
 
@@ -39,11 +41,15 @@ wake_mode() {
     case "$m" in off|auto|always) echo "$m" ;; *) echo off ;; esac
 }
 
-# The kernel lists every held tag in this file, ours among others', so match
-# the word rather than testing for a non-empty file.
-wake_held() {
-    grep -qw "$WAKE_TAG" "$WAKE_LOCK" 2>/dev/null
+# The kernel lists every held tag in this file, space separated, ours among
+# others'. Split on whitespace and match a WHOLE token: `grep -w docker` also
+# matches "docker-lifeline", because '-' counts as a word boundary. That made
+# wake_acquire believe the workload lock was already held whenever only the
+# lifeline was, so it silently never took it.
+wake_tag_held() {
+    tr ' \t' '\n\n' < "$WAKE_LOCK" 2>/dev/null | grep -qx -- "$1"
 }
+wake_held() { wake_tag_held "$WAKE_TAG"; }
 
 wake_acquire() {
     wake_supported || return 1
@@ -98,10 +104,44 @@ wake_should_hold() {
     esac
 }
 
+# ------------------------------------------------------------- the floor
+#
+# Learned the hard way. `auto` was watching exactly one container; that
+# container finished and was auto-removed, so the lock was correctly released,
+# the device went back to suspending ~2.5x/second, Wi-Fi dropped, cloudflared
+# could not hold its edge connection, and the phone became unreachable by
+# tunnel AND by adb. Recovering it needed physically walking to the device.
+#
+# So remote access gets its OWN lock, on a separate tag, that does not depend
+# on any container being up. Kernel locks are per-tag, so releasing the
+# workload lock can never take this one with it.
+#
+# The rule: if a way back in is supposed to exist, stay awake enough to serve
+# it. Opt out with `dockerctl wake floor off` if you really want the device to
+# sleep with sshd enabled.
+wake_floor_wanted() {
+    [ -f "$WAKE_NOFLOOR_F" ] && return 1
+    [ -f "$STATE/sshd" ] && return 0             # a way in is configured
+    tunnel_running 2>/dev/null && return 0       # or one is actually serving
+    return 1
+}
+
+wake_floor_held() { wake_tag_held "$WAKE_TAG_LIFE"; }
+
+wake_floor_sync() {
+    wake_supported || return 1
+    if wake_floor_wanted; then
+        wake_floor_held || echo "$WAKE_TAG_LIFE" > "$WAKE_LOCK" 2>/dev/null
+    else
+        wake_floor_held && echo "$WAKE_TAG_LIFE" > "$WAKE_UNLOCK" 2>/dev/null
+    fi
+}
+
 # Reconcile kernel state to the configured mode. Safe to call repeatedly.
 wake_sync() {
     wake_supported || return 1
     if wake_should_hold; then wake_acquire; else wake_release; fi
+    wake_floor_sync
 }
 
 wake_set() {
@@ -118,8 +158,15 @@ wake_status() {
         return 1
     fi
     say "  mode: $(wake_mode)"
-    wake_held && ok "wakelock HELD - device will not suspend" \
-              || warn "wakelock not held - device may suspend"
+    wake_held && ok "workload lock HELD" || warn "workload lock not held"
+    if [ -f "$WAKE_NOFLOOR_F" ]; then
+        warn "lifeline floor DISABLED - remote access can be suspended away"
+    else
+        wake_floor_held && ok "lifeline lock HELD (remote access stays reachable)" \
+                        || say "  lifeline: not needed (no sshd, no tunnel)"
+    fi
+    if wake_held || wake_floor_held; then ok "device will NOT suspend"
+    else warn "device may suspend"; fi
     n=$(wake_list | wc -l | tr -d ' ')
     [ "$n" -gt 0 ] && { say "  watching $n container(s):"; wake_list | sed 's/^/    /'; }
     return 0

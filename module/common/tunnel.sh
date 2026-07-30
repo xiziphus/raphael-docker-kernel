@@ -79,6 +79,15 @@ tunnel_named() {
     in_chroot_exec grep -E '^\s+- hostname:' "$CF_DIR/config.yml" 2>/dev/null | sed 's/.*hostname: /  https:\/\//'
 }
 
+# True if a tunnel is serving, by EITHER mechanism: a cloudflared container, or
+# a cloudflared process in the chroot. Written to straddle the migration out of
+# Docker so callers do not have to care which one is in use.
+tunnel_running() {
+    in_chroot_exec pgrep -x cloudflared >/dev/null 2>&1 && return 0
+    running || return 1
+    [ -n "$(in_chroot_exec docker ps -q --filter name=^cloudflared$ 2>/dev/null)" ]
+}
+
 tunnel_stop()   { in_chroot_exec docker rm -f cloudflared >/dev/null 2>&1; ok "tunnel stopped"; }
 tunnel_status() {
     in_chroot_exec docker ps -a --filter name=cloudflared --format '  {{.Names}}  {{.Status}}' 2>/dev/null

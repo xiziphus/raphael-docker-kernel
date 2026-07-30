@@ -8,7 +8,7 @@
 # Starting the daemon is opt-in -- dockerd and containerd cost real battery.
 ##########################################################################
 D=/data/adb/docker
-. "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"; . "$D/wake.sh"; . "$D/lan.sh"
+. "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"
 
 have_rootfs || exit 0
 
@@ -28,6 +28,7 @@ net_apply >> "$D/boot.log" 2>&1
 # sshd first: if the daemon start fails, remote access still comes back.
 if [ -f "$D/sshd" ]; then
     mount_chroot >/dev/null 2>&1
+    sshd_write_config >> "$D/boot.log" 2>&1
     in_chroot 'mkdir -p /run/sshd; pgrep -x sshd >/dev/null || /usr/sbin/sshd' >> "$D/boot.log" 2>&1
 fi
 
