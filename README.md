@@ -26,6 +26,91 @@ Verified on Project Infinity-X 3.11 / Android 16 / `4.14.356-openela-rc1-perf`:
 ERPNext idles at **~534 MB** across all eleven containers and answers HTTP 200
 from another machine on the network.
 
+## Lineage
+
+```
+Linux 4.14 LTS
+ └─ OpenELA 4.14.356                     post-EOL LTS continuation
+     └─ raphael-resources/android_kernel_xiaomi_sm8150 @ 16.2
+        the ROM's own tree · head 6035a52657a2 · 4.14.356-openela-rc1-perf
+         ├─ drivers/kernelsu             KernelSU-Next, in-tree
+         ├─ fs/susfs.c                   SUSFS, in-tree
+         └─ + kernel/container.config    the only kernel change this project makes
+```
+
+**This project adds one config fragment.** It does not patch kernel source, and
+it does not add KernelSU or SUSFS — both are already in that tree.
+
+### Trees that do not work, and why
+
+| Tree | Outcome |
+|---|---|
+| `LineageOS/android_kernel_xiaomi_sm8150 @ lineage-23.2` | Compiles, boots, reaches userspace, then reboots at `bpfloader`. Android 16's `netbpfload` needs eBPF backports only the ROM tree carries |
+| `SOVIET-ANDROID/kernel_xiaomi_raphael` | The v1.0 lineage. Bootlooped on this ROM; superseded |
+
+The LineageOS failure is worth one more line because it is invisible to the
+obvious check: **every `CONFIG_BPF*` symbol is byte-identical between the two
+trees.** The difference is 105 KB of missing `include/uapi/linux/bpf.h` and an
+absent `kernel/bpf/btf.c`. A config diff cannot see a missing subsystem, which
+is why the build script gates on *source* capability rather than config.
+Full account in [docs/ANDROID-NOTES.md](docs/ANDROID-NOTES.md).
+
+### Credits
+
+| | |
+|---|---|
+| Kernel tree | [raphael-resources/android_kernel_xiaomi_sm8150](https://github.com/raphael-resources/android_kernel_xiaomi_sm8150) |
+| Root | [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next), in-tree |
+| Hiding | [SUSFS](https://gitlab.com/simonpunk/susfs4ksu), in-tree |
+| Toolchain | AOSP Clang 18.0.1 (r522817) |
+| Recovery zip | [osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3) |
+| Boot image tools | AOSP `mkbootimg`; `magiskboot` from [Magisk](https://github.com/topjohnwu/Magisk) |
+| Rootfs | Debian 12 (bookworm) |
+| Tunnel / UI | Cloudflare `cloudflared`, Portainer CE |
+| Predecessor | [xiziphus/kernel_xiaomi_raphael_antigravity](https://github.com/xiziphus/kernel_xiaomi_raphael_antigravity) — build harness and failure history |
+
+Builds identify as `antigravitykernel@antigravity` in `/proc/version`. That is
+cosmetic: it does not affect `uname -r`, which the ROM matches against.
+
+## Dependencies
+
+Split by when you need them — most people need only the first group.
+
+**To flash and run**
+
+- `raphael` (Redmi K20 Pro / Mi 9T Pro) on an Android 16 ROM
+- **KernelSU already working.** 4.14 is not GKI, so KernelSU must be *compiled
+  into* the kernel — you cannot install a module to get root. If you have none,
+  that is Path A above
+- The KernelSU-Next manager app
+- ~600 MB for the Debian rootfs, plus space for images, on `/data`
+- A network connection for the one-time setup
+
+**Fetched on-device, automatically**
+
+`docker.io` and `iptables` at setup; `openssh-server` when you enable SSH; the
+`cloudflared` arm64 binary when you start a tunnel — it is not in Debian's
+archive, so it comes from Cloudflare's releases.
+
+**To build the kernel yourself**
+
+Docker, AOSP Clang 18.0.1 r522817, git, python3, ~40 GB — and a
+**case-sensitive filesystem**. 4.14's netfilter ships both `xt_CONNMARK.h` and
+`xt_connmark.h`; on a case-insensitive volume one silently overwrites the other
+and the tree is quietly corrupt. See [docs/BUILDING.md](docs/BUILDING.md).
+
+**On your computer — all optional**
+
+Nothing here is needed to run Docker on the phone; it is for driving it from a
+desktop. See [docs/DESKTOP.md](docs/DESKTOP.md).
+
+| | For | Note |
+|---|---|---|
+| `ssh` | shell access | over the tunnel or the LAN |
+| `cloudflared` | tunnel access | only for the `ssh1.…` path; LAN needs nothing |
+| `terminal-notifier` | notification relay | macOS registers it with alert style **None**, so notifications are accepted, filed silently into Notification Centre, and never appear. Set it to Banners |
+| `adb` | boot-partition backup | the chroot cannot see `/data`, so this is the only way |
+
 ## Which path applies to you
 
 Everything hinges on one question: **do you already have KernelSU working?**
@@ -144,18 +229,105 @@ Your original boot image is backed up to
 the repacked kernel is verified to still carry the arm64 `ARMd` magic before
 the write happens.
 
-## One command for everything
+## What it can do
 
+### Containers
+
+Docker 20.10.24 with runc 1.1.5, `overlay2` on f2fs, cgroup v2 (`memory`,
+`pids`). `run`, `build`, `compose` (v1), volumes, bridge and host networking,
+restart policies. Images are arm64.
+
+**`docker exec` does not work.** Containers are entered with `MS_MOVE` +
+`chroot` rather than `pivot_root`, which cannot work inside a chroot, so an
+exec'd process lands at Android's `/` instead of the container rootfs. Use
+`docker run` against the same volumes and network. A corollary: every image
+`HEALTHCHECK` is an exec, so containers with one report `(unhealthy)` forever
+and `depends_on: condition: service_healthy` deadlocks.
+
+### Networking
+
+Android's `netd` installs a routing table per network selected by fwmark, and
+deletes the usual `lookup main` rule, so Docker's bridge routes are never
+consulted. Three rule classes fix it — per-uplink egress, return path, and a
+`FORWARD` accept ahead of `tetherctrl_FORWARD`'s `DROP` — scoped to
+`172.16.0.0/12` so every compose project's bridge is covered, with automatic
+failover between Wi-Fi and mobile. `netd` rewrites its rules on any
+connectivity change, so ours are re-asserted every 60 s.
+
+**Published ports are not reachable from the LAN.** `-p 8080:80` works on the
+phone itself. For anything else use `--network=host` or a tunnel.
+
+### Remote access — three independent paths
+
+| Path | Survives |
+|---|---|
+| SSH on loopback, via the tunnel | — |
+| SSH on the LAN | tunnel down, Cloudflare down, no internet |
+| Cloudflare tunnel | CGNAT, no port forwarding, no public IP |
+
+**Both `sshd` and `cloudflared` run as chroot processes, not containers**, so
+every path survives dockerd being stopped, crashed or mid-upgrade — which is
+exactly when you need a shell. The boot service brings them up *before* Docker
+and supervises them every 60 s.
+
+`asu` gives an Android root shell from inside the chroot, so one SSH session
+reaches the boot partition, `/data/adb`, `dumpsys` and `pm`.
+
+### Staying alive
+
+Android autosleeps whenever nothing holds a wakelock — measured at **75
+suspend/resume cycles in 30 seconds** during an active build. Containers freeze,
+schedulers miss ticks, and tunnels drop mid-stream.
+
+- **Wakelock**: `off` / `auto` (only while a watched container runs) / `always`
+- **Lifeline floor**: a *separate* lock held whenever SSH or a tunnel is up, so
+  remote access can never be suspended away by the workload lock releasing
+- **Battery guard**: on battery below a cutoff, stops containers → Docker →
+  tunnel → SSH → *then* releases the locks, in that order, and says why
+- **Status notification** in the shade: LAN address, container count, tunnel and
+  SSH state, power
+- **LAN address publishing** — DHCP moves the phone; this puts the current
+  address somewhere readable when nothing can connect
+
+### Managing it
+
+Three surfaces, all equivalent:
+
+```text
+dockerctl setup                  one-time Debian + Docker install
+dockerctl start | stop           the daemon (restores containers it stopped)
+dockerctl status | doctor --fix  summary; check every prerequisite and repair
+dockerctl net apply|check|clear  Android routing and firewall rules
+dockerctl ui start|admin <pw>    Portainer on :9000
+dockerctl tunnel named|token|quick|stop|status|log
+dockerctl ssh on|off|lan on|off|status
+dockerctl wake off|auto|always|add <ct>|rm <ct>|floor on|off|status
+dockerctl power guard on|off|cutoff <pct>|notify on|off|stopall|status
+dockerctl lan now|on|off|ip|status
+dockerctl relay new|reset        new SMS and notifications, for the desktop
+dockerctl shell                  a shell in the Debian chroot
+dockerctl ps / run / compose     passed straight to docker
 ```
-dockerctl status              what is running
-dockerctl doctor --fix        check every prerequisite, repair what it can
-dockerctl start | stop        the daemon
-dockerctl setup               one-time Debian + Docker install
-dockerctl ui start            Portainer on :9000
-dockerctl ui admin <pw>       create the UI login
-dockerctl shell               a shell in the Debian chroot
-dockerctl ps / run / compose  passed straight to docker
-```
+
+**Careful:** `dockerctl start` and `stop` control the *daemon*. To act on a
+container use `dockerctl container start <name>` — the bare verbs are shadowed
+and ignore their arguments.
+
+A **WebUI** in the KernelSU manager covers the same ground with toggles, a
+container list and per-container wakelock pills. An **ACTION menu** driven by
+the volume keys covers setup, start/stop and repair for anyone with no shell.
+
+### From a computer
+
+See [docs/DESKTOP.md](docs/DESKTOP.md).
+
+- **Notification relay** — mirrors the phone's SMS and app notifications onto
+  macOS. No app installed on the phone, no notification-listener permission:
+  with root, `content://sms/inbox` and `dumpsys notification` are already
+  readable
+- **State snapshots** — `tools/state-snapshot.sh` captures the running stack
+  into a git repo on the device, so `git log` is the machine's history
+- **SSH aliases** for the tunnel, the LAN and an Android root shell
 
 `dockerctl doctor` exists because everything in this stack fails far from its
 cause — a missing routing rule looks like a broken image pull, a `nodev` mount

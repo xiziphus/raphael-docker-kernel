@@ -3,16 +3,26 @@
 # dockerctl - one entry point for Docker on Android.
 #
 #   dockerctl setup [rootfs.tar.xz]   one-time: Debian + Docker
-#   dockerctl start | stop | restart  the daemon (applies net rules too)
+#   dockerctl start | stop | restart  the DAEMON (applies net rules too)
 #   dockerctl status                  short summary
 #   dockerctl doctor [--fix]          check every prerequisite; repair
 #   dockerctl net apply|check|clear   Android routing/firewall rules
 #   dockerctl ui start|stop|status    Portainer
 #   dockerctl ui admin <password>     create the Portainer admin, no browser
-#   dockerctl tunnel quick [url]       ephemeral public URL via Cloudflare
-#   dockerctl tunnel token <token>     named tunnel from the CF dashboard
+#   dockerctl tunnel named|token <t>|quick [url]|stop|status|log [n]
+#   dockerctl ssh on|off|lan on|off|status      sshd in the chroot
+#   dockerctl wake off|auto|always|add <ct>|rm <ct>|floor on|off|status
+#   dockerctl power guard on|off|cutoff <pct>|notify on|off|now|stopall|status
+#   dockerctl lan now|on|off|ip|status          publish the LAN address
+#   dockerctl relay new|reset         new SMS/notifications, for the desktop
+#   dockerctl autostart on|off|status start the daemon at boot
+#   dockerctl json                    all state as key=value, for the WebUI
 #   dockerctl shell                   a shell in the Debian chroot
 #   dockerctl <anything else>         passed to docker in the chroot
+#
+# NOTE: start/stop/restart/status act on the DAEMON. To act on a container use
+# the docker passthrough explicitly -- `dockerctl container start <name>` --
+# because the bare verbs are matched here first and ignore their arguments.
 ##########################################################################
 set -u
 D=/data/adb/docker
