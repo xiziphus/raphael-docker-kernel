@@ -6,9 +6,12 @@ phone up.
 
 ## SSH
 
-`sshd` runs **in the chroot, not in a container**, so it survives dockerd being
-stopped, crashed or upgraded. That is deliberate: a shell is most valuable
-exactly when Docker is broken.
+Everything else on this page assumes you can already get a shell. Setting that
+up — putting a key on the phone, the LAN path, the tunnel path, the
+`~/.ssh/config` to paste, and what each failure mode actually means — is its own
+page: **[SSH.md](SSH.md)**.
+
+The short version:
 
 ```sh
 dockerctl ssh on              # installs openssh-server if missing, loopback only
@@ -16,41 +19,11 @@ dockerctl ssh lan on          # also listen on the LAN
 dockerctl ssh status
 ```
 
-Add your public key to `/root/.ssh/authorized_keys` inside the chroot
-(`/data/debian/root/.ssh/` from Android). The directory must be `0700` and the
-file `0600` or sshd's `StrictModes` refuses them and logs the reason nowhere
-you will look.
+`sshd` runs **in the chroot, not in a container**, so it survives dockerd being
+stopped, crashed or upgraded. That is deliberate: a shell is most valuable
+exactly when Docker is broken.
 
-Three host aliases worth having in `~/.ssh/config`:
-
-```sshconfig
-# Through the Cloudflare tunnel - works from anywhere.
-Host raphael
-    HostName ssh1.example.com
-    User root
-    IdentityFile ~/.ssh/your_key
-    ProxyCommand cloudflared access ssh --hostname %h
-
-# Direct on the LAN - no Cloudflare, no tunnel client, works when the tunnel
-# or dockerd is broken. The address is DHCP-assigned and moves; the current
-# one is in the notification shade, or `ssh raphael 'asu "dockerctl lan ip"'`.
-Host raphael-lan
-    HostName 192.168.1.x
-    Port 2222
-    User root
-    IdentityFile ~/.ssh/your_key
-
-# Android root shell rather than the Debian chroot.
-Host raphael-android
-    HostName ssh1.example.com
-    User root
-    IdentityFile ~/.ssh/your_key
-    ProxyCommand cloudflared access ssh --hostname %h
-    RequestTTY yes
-    RemoteCommand /usr/local/bin/asu
-```
-
-### `asu` — Android root from inside the chroot
+## `asu` — Android root from inside the chroot
 
 An SSH session lands in Debian, which cannot see Android's `/`. `asu` bridges
 it: `/proc/1/root` *is* init's root, and root in the ksu domain can traverse it.

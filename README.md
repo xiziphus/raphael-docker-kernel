@@ -131,7 +131,7 @@ desktop. See [docs/DESKTOP.md](docs/DESKTOP.md).
 
 | | For | Note |
 |---|---|---|
-| `ssh` | shell access | over the tunnel or the LAN |
+| `ssh` | shell access | over the tunnel or the LAN — [docs/SSH.md](docs/SSH.md) |
 | `cloudflared` | tunnel access | only for the `ssh1.…` path; LAN needs nothing |
 | `terminal-notifier` | notification relay | macOS registers it with alert style **None**, so notifications are accepted, filed silently into Notification Centre, and never appear. Set it to Banners |
 | `adb` | boot-partition backup | the chroot cannot see `/data`, so this is the only way |
@@ -320,6 +320,10 @@ and supervises them every 60 s.
 
 `asu` gives an Android root shell from inside the chroot, so one SSH session
 reaches the boot partition, `/data/adb`, `dumpsys` and `pm`.
+
+Setting all of that up — getting your key onto the phone, both paths, the
+`~/.ssh/config` to paste, and what each failure actually means — is
+[docs/SSH.md](docs/SSH.md).
 
 ### Staying alive
 
