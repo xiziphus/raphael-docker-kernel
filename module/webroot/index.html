@@ -163,6 +163,19 @@ a{color:var(--accent)}
   <div class="btns"><button id="b-token" class="ghost">Save token &amp; connect</button></div>
 </div>
 
+<div class="card" id="card-hermes"><h2>Hermes Agent</h2>
+  <div class="sub" style="margin:0 0 8px">
+    An AI agent with a web dashboard, running in the chroot. It executes shell
+    commands as root &mdash; keep it behind the tunnel, never on the LAN.
+  </div>
+  <div class="row">
+    <span class="k">Dashboard<br><span style="font-size:12px;color:var(--dim)">loopback only &mdash; reach it through a tunnel hostname</span>
+      <br><span class="v" id="hermnote" style="font-size:12px"></span></span>
+    <label class="sw"><input type="checkbox" id="hermes"><span class="sl"></span></label>
+  </div>
+  <div class="btns"><button id="b-hermlog" class="ghost">Log</button></div>
+</div>
+
 <div class="card"><h2>Containers</h2><div id="cts" class="sub">…</div></div>
 
 <div class="card"><h2>Output</h2><pre id="out">ready</pre></div>
@@ -224,6 +237,16 @@ async function refresh(){
   var ln=document.getElementById("lannote");
   if(st.sshlan==="on"&&st.lanip){ln.textContent="ssh -p "+(st.sshport||2222)+" root@"+st.lanip;ln.className="v ok";}
   else {ln.textContent="";ln.className="v";}
+
+  // Hide the card entirely when hermes is not installed. Most people will
+  // never install it, and a toggle for absent software is worse than nothing --
+  // that is the same mistake the ssh toggle used to make in reverse.
+  document.getElementById("card-hermes").style.display=(st.hermesok==="yes")?"":"none";
+  document.getElementById("hermes").checked=(st.hermes==="on");
+  var hn=document.getElementById("hermnote");
+  if(st.hermes==="on"&&st.hermesrun!=="yes"){hn.textContent="enabled but NOT listening — tap off then on";hn.className="v bad";}
+  else if(st.hermesrun==="yes"){hn.textContent="listening on 127.0.0.1:"+(st.hermesport||"9119");hn.className="v ok";}
+  else {hn.textContent="";hn.className="v";}
 
   var lanEl=document.getElementById("s-lan");
   lanEl.textContent=st.lanip||"no Wi-Fi";
@@ -296,6 +319,10 @@ document.getElementById("lanwatch").addEventListener("change",function(e){
   run("lan "+(e.target.checked?"on":"off"),"LAN notify");
 });
 document.getElementById("b-lannow").onclick=function(){run("lan now","publishing address");};
+document.getElementById("hermes").addEventListener("change",function(e){
+  run("hermes "+(e.target.checked?"on":"off"),"hermes dashboard");
+});
+document.getElementById("b-hermlog").onclick=function(){run("hermes log 40","hermes log");};
 document.getElementById("wake").addEventListener("change",function(e){
   run("wake "+e.target.value,"wakelock mode");
 });

@@ -356,10 +356,16 @@ dockerctl ssh on|off|lan on|off|status
 dockerctl wake off|auto|always|add <ct>|rm <ct>|floor on|off|status
 dockerctl power guard on|off|cutoff <pct>|notify on|off|stopall|status
 dockerctl lan now|on|off|ip|status
+dockerctl hermes on|off|status   Hermes Agent dashboard, if installed
 dockerctl relay new|reset        new SMS and notifications, for the desktop
 dockerctl shell                  a shell in the Debian chroot
 dockerctl ps / run / compose     passed straight to docker
 ```
+
+`dockerctl hermes` appears only if you have installed
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) yourself — this
+project ships a switch for its dashboard, not the agent. See
+[docs/HERMES.md](docs/HERMES.md).
 
 **Careful:** `dockerctl start` and `stop` control the *daemon*. To act on a
 container use `dockerctl container start <name>` — the bare verbs are shadowed

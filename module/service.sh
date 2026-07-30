@@ -8,7 +8,7 @@
 # Starting the daemon is opt-in -- dockerd and containerd cost real battery.
 ##########################################################################
 D=/data/adb/docker
-. "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"; . "$D/power.sh"
+. "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"; . "$D/power.sh"; . "$D/hermes.sh"
 
 have_rootfs || exit 0
 
@@ -41,6 +41,10 @@ wake_sync >> "$D/boot.log" 2>&1
 # way in up first means a failing daemon start is still diagnosable remotely.
 tunnel_supervise >> "$D/boot.log" 2>&1
 
+# Also before the daemon: hermes runs in the chroot, not a container, so it has
+# no dependency on dockerd and there is no reason to make it wait.
+hermes_supervise >> "$D/boot.log" 2>&1
+
 [ -f "$D/autostart" ] || exit 0
 daemon_start >> "$D/boot.log" 2>&1
 # --restart=always containers come back by themselves once dockerd is up.
@@ -61,6 +65,7 @@ while true; do
     # cloudflared is a host process now, so nothing else restarts it. Without
     # this a dropped tunnel stays dropped until someone notices.
     tunnel_supervise >> "$D/boot.log" 2>&1
+    hermes_supervise >> "$D/boot.log" 2>&1
     # Notifies only when the address actually changed, so this is quiet.
     lan_watch_tick
     # Refreshes the status notification and, if armed, stops everything before
