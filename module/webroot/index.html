@@ -84,6 +84,19 @@ a{color:var(--accent)}
   </div>
 </div>
 
+<div class="card"><h2>Find me on the LAN</h2>
+  <div class="sub" style="margin:0 0 8px">
+    DHCP moves this phone. Publishing puts the current address in the
+    notification shade, where you can read it even when nothing can connect.
+  </div>
+  <div class="row"><span class="k">Address now</span><span class="v" id="s-lan">…</span></div>
+  <div class="row">
+    <span class="k">Notify when it changes</span>
+    <label class="sw"><input type="checkbox" id="lanwatch"><span class="sl"></span></label>
+  </div>
+  <div class="btns"><button id="b-lannow" class="ghost">Publish now</button></div>
+</div>
+
 <div class="card"><h2>Keep awake</h2>
   <div class="sub" style="margin:0 0 8px">
     Android suspends this device about twice a second when nothing holds a
@@ -174,6 +187,11 @@ async function refresh(){
   else if(st.sshdrun==="yes"){sn.textContent="listening on 127.0.0.1:2222";sn.className="v ok";}
   else {sn.textContent="";sn.className="v";}
 
+  var lanEl=document.getElementById("s-lan");
+  lanEl.textContent=st.lanip||"no Wi-Fi";
+  lanEl.className="v "+(st.lanip?"ok":"bad");
+  document.getElementById("lanwatch").checked=(st.lanwatch==="on");
+
   var wsel=document.getElementById("wake");
   wsel.value=st.wake||"off";
   wsel.disabled=(st.wakeok!=="yes");
@@ -218,6 +236,10 @@ document.getElementById("auto").addEventListener("change",function(e){
 document.getElementById("sshd").addEventListener("change",function(e){
   run("ssh "+(e.target.checked?"on":"off"),"ssh server");
 });
+document.getElementById("lanwatch").addEventListener("change",function(e){
+  run("lan "+(e.target.checked?"on":"off"),"LAN notify");
+});
+document.getElementById("b-lannow").onclick=function(){run("lan now","publishing address");};
 document.getElementById("wake").addEventListener("change",function(e){
   run("wake "+e.target.value,"wakelock mode");
 });

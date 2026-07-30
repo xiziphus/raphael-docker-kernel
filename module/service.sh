@@ -8,7 +8,7 @@
 # Starting the daemon is opt-in -- dockerd and containerd cost real battery.
 ##########################################################################
 D=/data/adb/docker
-. "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"; . "$D/wake.sh"
+. "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"; . "$D/wake.sh"; . "$D/lan.sh"
 
 have_rootfs || exit 0
 
@@ -53,4 +53,6 @@ while true; do
     # `auto` mode has to be re-evaluated as containers start and stop; this is
     # the only periodic hook we have.
     wake_sync
+    # Notifies only when the address actually changed, so this is quiet.
+    lan_watch_tick
 done &

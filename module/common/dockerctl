@@ -17,7 +17,7 @@
 set -u
 D=/data/adb/docker
 . "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"
-. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"
+. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"
 
 [ "$(id -u)" = 0 ] || { bad "must run as root: su -c 'dockerctl $*'"; exit 1; }
 
@@ -54,6 +54,18 @@ case "$cmd" in
       status) [ -f "$STATE/autostart" ] && ok "autostart ON" || bad "autostart OFF" ;;
       *)      bad "usage: dockerctl autostart on|off|status"; exit 1 ;;
     esac ;;
+  lan)
+    # DHCP moves this device; over one session it was .67, .72 then .85. Publish
+    # the current address to the notification shade so it is readable even when
+    # nothing can connect.
+    case "${1:-status}" in
+      now|publish) lan_publish 1 >/dev/null && ok "published $(lan_ip)" ;;
+      on)     touch "$LAN_STATE_F"; lan_publish 1 >/dev/null; ok "auto-publish ON" ;;
+      off)    rm -f "$LAN_STATE_F"; ok "auto-publish OFF" ;;
+      ip)     lan_ip ;;
+      status) lan_status ;;
+      *)      bad "usage: dockerctl lan now|on|off|ip|status"; exit 1 ;;
+    esac ;;
   wake)
     # Android suspends ~2.5x/second with no wakelock held, freezing containers
     # mid-work. `auto` is the sane default: stay awake only while something you
@@ -83,6 +95,8 @@ case "$cmd" in
     printf 'wakeok=%s\n'    "$(wake_supported && echo yes || echo no)"
     # Space-separated so the page can test membership without a second call.
     printf 'wakelist=%s\n'  "$(wake_list | tr '\n' ' ')"
+    printf 'lanip=%s\n'     "$(lan_ip)"
+    printf 'lanwatch=%s\n' "$(lan_enabled && echo on || echo off)"
     printf 'uplinks=%s\n'   "$(uplinks | tr '\n' ' ')"
     printf 'vpn=%s\n'       "$(vpn_holds_root && echo yes || echo no)"
     if running; then
