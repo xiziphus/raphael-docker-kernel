@@ -102,6 +102,26 @@ a{color:var(--accent)}
   <div class="btns"><button id="b-lannow" class="ghost">Publish now</button></div>
 </div>
 
+<div class="card"><h2>Power</h2>
+  <div class="row"><span class="k">Battery</span><span class="v" id="s-batt">…</span></div>
+  <div class="row">
+    <span class="k">Status notification<br><span style="font-size:12px;color:var(--dim)">LAN address, container count and power, in the shade</span></span>
+    <label class="sw"><input type="checkbox" id="notify"><span class="sl"></span></label>
+  </div>
+  <div class="row">
+    <span class="k">Stop everything when low<br><span style="font-size:12px;color:var(--dim)">on battery only &mdash; containers, Docker, tunnel and SSH</span></span>
+    <label class="sw"><input type="checkbox" id="guard"><span class="sl"></span></label>
+  </div>
+  <div class="row"><span class="k">Cut off below</span>
+    <select id="cutoff" style="width:auto;min-width:96px">
+      <option value="10">10%</option><option value="15">15%</option>
+      <option value="20">20%</option><option value="30">30%</option>
+      <option value="40">40%</option>
+    </select>
+  </div>
+  <div class="btns"><button id="b-stopall" class="ghost">Stop everything now</button></div>
+</div>
+
 <div class="card"><h2>Keep awake</h2>
   <div class="sub" style="margin:0 0 8px">
     Android suspends this device about twice a second when nothing holds a
@@ -192,6 +212,14 @@ async function refresh(){
   else if(st.sshdrun==="yes"){sn.textContent="listening on 127.0.0.1:2222";sn.className="v ok";}
   else {sn.textContent="";sn.className="v";}
 
+  var be=document.getElementById("s-batt");
+  be.textContent=(st.batt||"?")+"% "+(st.battst||"");
+  be.className="v "+((st.battst==="Charging"||st.battst==="Full")?"ok":
+                     (parseInt(st.batt||"100",10)<=parseInt(st.cutoff||"20",10)?"bad":"warn"));
+  document.getElementById("notify").checked=(st.notify==="on");
+  document.getElementById("guard").checked=(st.guard==="on");
+  if(st.cutoff) document.getElementById("cutoff").value=st.cutoff;
+
   document.getElementById("sshlan").checked=(st.sshlan==="on");
   var ln=document.getElementById("lannote");
   if(st.sshlan==="on"&&st.lanip){ln.textContent="ssh -p "+(st.sshport||2222)+" root@"+st.lanip;ln.className="v ok";}
@@ -246,6 +274,21 @@ document.getElementById("auto").addEventListener("change",function(e){
 document.getElementById("sshd").addEventListener("change",function(e){
   run("ssh "+(e.target.checked?"on":"off"),"ssh server");
 });
+document.getElementById("notify").addEventListener("change",function(e){
+  run("power notify "+(e.target.checked?"on":"off"),"status notification");
+});
+document.getElementById("guard").addEventListener("change",function(e){
+  run("power guard "+(e.target.checked?"on":"off"),"battery guard");
+});
+document.getElementById("cutoff").addEventListener("change",function(e){
+  run("power cutoff "+e.target.value,"cutoff");
+});
+// Confirmed: this tears down every container, Docker, the tunnel and SSH, and
+// the page is easy to mis-tap one-handed.
+document.getElementById("b-stopall").onclick=function(){
+  if(confirm("Stop ALL containers, Docker, the tunnel and SSH?\n\nYou will lose remote access until you start it again from the phone."))
+    run("power stopall","stopping everything");
+};
 document.getElementById("sshlan").addEventListener("change",function(e){
   run("ssh lan "+(e.target.checked?"on":"off"),"LAN ssh");
 });

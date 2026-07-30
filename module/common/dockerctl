@@ -17,7 +17,7 @@
 set -u
 D=/data/adb/docker
 . "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"
-. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"
+. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"; . "$D/power.sh"
 
 [ "$(id -u)" = 0 ] || { bad "must run as root: su -c 'dockerctl $*'"; exit 1; }
 
@@ -66,6 +66,31 @@ case "$cmd" in
       status) lan_status ;;
       *)      bad "usage: dockerctl lan now|on|off|ip|status"; exit 1 ;;
     esac ;;
+  power)
+    case "${1:-status}" in
+      guard)  shift
+              case "${1:-}" in
+                on)  touch "$PWR_GUARD_F"; ok "battery guard armed at $(pwr_threshold)%" ;;
+                off) rm -f "$PWR_GUARD_F" "$PWR_TRIPPED_F"; ok "battery guard off" ;;
+                *)   bad "usage: dockerctl power guard on|off"; exit 1 ;;
+              esac ;;
+      cutoff) shift
+              case "${1:-}" in
+                ''|*[!0-9]*) bad "usage: dockerctl power cutoff <percent>"; exit 1 ;;
+                *) echo "$1" > "$PWR_LOW_F"; rm -f "$PWR_TRIPPED_F"; ok "cutoff $1%" ;;
+              esac ;;
+      notify) shift
+              case "${1:-}" in
+                on)  touch "$PWR_NOTIFY_F"; notify_status_post; ok "status notification on" ;;
+                off) rm -f "$PWR_NOTIFY_F"; notify_clear "$NOTIFY_TAG_STATUS"; ok "status notification off" ;;
+                now) notify_status_post; ok "posted" ;;
+                *)   bad "usage: dockerctl power notify on|off|now"; exit 1 ;;
+              esac ;;
+      stopall) pwr_stop_all "${1:-requested}" ;;
+      tick)   pwr_tick ;;
+      status) pwr_status ;;
+      *)      bad "usage: dockerctl power guard on|off | cutoff <pct> | notify on|off|now | stopall | status"; exit 1 ;;
+    esac ;;
   wake)
     # Android suspends ~2.5x/second with no wakelock held, freezing containers
     # mid-work. `auto` is the sane default: stay awake only while something you
@@ -109,6 +134,11 @@ case "$cmd" in
     printf 'lanip=%s\n'     "$(lan_ip)"
     printf 'lanwatch=%s\n' "$(lan_enabled && echo on || echo off)"
     printf 'uplinks=%s\n'   "$(uplinks | tr '\n' ' ')"
+    printf 'batt=%s\n'      "$(batt_pct)"
+    printf 'battst=%s\n'    "$(batt_status)"
+    printf 'guard=%s\n'     "$(pwr_guard_on && echo on || echo off)"
+    printf 'cutoff=%s\n'    "$(pwr_threshold)"
+    printf 'notify=%s\n'    "$(notify_on && echo on || echo off)"
     printf 'tunnel=%s\n'    "$(tunnel_mode)"
     printf 'tunnelup=%s\n'  "$(tunnel_running && echo yes || echo no)"
     printf 'vpn=%s\n'       "$(vpn_holds_root && echo yes || echo no)"

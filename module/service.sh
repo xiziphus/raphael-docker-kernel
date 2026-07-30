@@ -8,7 +8,7 @@
 # Starting the daemon is opt-in -- dockerd and containerd cost real battery.
 ##########################################################################
 D=/data/adb/docker
-. "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"
+. "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"; . "$D/power.sh"
 
 have_rootfs || exit 0
 
@@ -63,4 +63,7 @@ while true; do
     tunnel_supervise >> "$D/boot.log" 2>&1
     # Notifies only when the address actually changed, so this is quiet.
     lan_watch_tick
+    # Refreshes the status notification and, if armed, stops everything before
+    # the battery runs out rather than after.
+    pwr_tick
 done &
