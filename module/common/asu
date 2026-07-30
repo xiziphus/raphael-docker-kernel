@@ -1,0 +1,59 @@
+#!/bin/sh
+##########################################################################
+# asu - run a command as Android root, from inside the Debian chroot.
+#
+# The chroot cannot see Android's / , but /proc/1/root IS init's root -- the
+# real one -- and we are root in the ksu domain, so it is traversable. Android
+# binaries still cannot be exec'd through that path directly: their ELF
+# interpreter is /system/bin/linker64, an absolute path that resolves inside
+# Debian. chroot(1) fixes that by making the paths mean what they say.
+#
+#   asu                 interactive Android root shell
+#   asu <command...>    run one command as Android root
+#
+# The environment matters as much as the root does. Android's `content`, `cmd`,
+# `pm` and `am` are shell wrappers around app_process, which needs
+# BOOTCLASSPATH, ANDROID_DATA and friends. Inherit Debian's environment instead
+# and they start, find no runtime, and exit 0 having printed NOTHING -- so a
+# caller sees success and empty output and concludes there is no data. That
+# cost an afternoon: `dockerctl relay new` returned three SMS under adb and
+# nothing at all under asu, with rc=0 both times.
+#
+# So the environment is lifted from PID 1, which has the real one.
+##########################################################################
+AROOT=/proc/1/root
+ASH=/system/bin/sh
+
+[ -x "$AROOT$ASH" ] || { echo "asu: cannot reach Android root via /proc/1/root" >&2; exit 1; }
+
+# Written where the chrooted shell can source it: /data is the same filesystem
+# on both sides. Quote values and escape embedded single quotes so a value with
+# spaces or punctuation survives.
+ENVF_HOST=$AROOT/data/local/tmp/.asu-env
+ENVF_GUEST=/data/local/tmp/.asu-env
+
+# Three sources, merged in order of increasing authority. PID 1's own
+# environment is NOT enough on its own -- init carries only four variables
+# (PATH, INIT_AVB_VERSION, ...), not the ones app_process needs. It exports the
+# rest to the processes it spawns, from these two files:
+#
+#   /init.environ.rc            ANDROID_ROOT, ANDROID_DATA, ANDROID_STORAGE...
+#   /data/system/environ/classpath   BOOTCLASSPATH and friends, generated at
+#                                    boot by derive_classpath from the apexes,
+#                                    so it cannot be hardcoded
+#
+# Both use init-rc syntax -- `export KEY VALUE`, unquoted -- not shell syntax.
+{
+    tr '\0' '\n' < /proc/1/environ 2>/dev/null \
+      | sed "s/'/'\\\\''/g; s/^\([A-Za-z_][A-Za-z0-9_]*\)=\(.*\)$/export \1='\2'/"
+    for f in "$AROOT/init.environ.rc" "$AROOT/data/system/environ/classpath"; do
+        [ -r "$f" ] || continue
+        sed -n "s/'/'\\\\''/g; s/^[[:space:]]*export[[:space:]]\{1,\}\([A-Za-z_][A-Za-z0-9_]*\)[[:space:]]\{1,\}\(.*\)$/export \1='\2'/p" "$f"
+    done
+} > "$ENVF_HOST" 2>/dev/null
+
+if [ "$#" -eq 0 ]; then
+    exec chroot "$AROOT" $ASH -c ". $ENVF_GUEST 2>/dev/null; exec $ASH"
+else
+    exec chroot "$AROOT" $ASH -c ". $ENVF_GUEST 2>/dev/null; $*"
+fi

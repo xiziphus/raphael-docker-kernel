@@ -17,7 +17,7 @@
 set -u
 D=/data/adb/docker
 . "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"
-. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"; . "$D/power.sh"
+. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"; . "$D/power.sh"; . "$D/relay.sh"
 
 [ "$(id -u)" = 0 ] || { bad "must run as root: su -c 'dockerctl $*'"; exit 1; }
 
@@ -65,6 +65,14 @@ case "$cmd" in
       ip)     lan_ip ;;
       status) lan_status ;;
       *)      bad "usage: dockerctl lan now|on|off|ip|status"; exit 1 ;;
+    esac ;;
+  relay)
+    # Emits new SMS and app notifications as TSV, once each. Consumed by a
+    # poller on the desktop; see tools/mac-notify-relay.sh.
+    case "${1:-new}" in
+      new)   relay_new ;;
+      reset) relay_reset ;;
+      *)     bad "usage: dockerctl relay new|reset"; exit 1 ;;
     esac ;;
   power)
     case "${1:-status}" in

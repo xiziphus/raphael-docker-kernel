@@ -49,6 +49,13 @@ do_setup() {
       dpkg --configure -a 2>/dev/null || true
       docker --version
     '
+    # asu: Android root from inside the chroot. Installed here so an ssh
+    # session can reach dumpsys, content, pm and the boot partition.
+    if [ -f "$STATE/asu" ]; then
+        cp -f "$STATE/asu" "$ROOT/usr/local/bin/asu" && chmod 755 "$ROOT/usr/local/bin/asu"
+        ok "asu installed (Android root from the chroot)"
+    fi
+
     say ""
     ok "setup complete"
     say "  dockerctl start        # start the daemon"
