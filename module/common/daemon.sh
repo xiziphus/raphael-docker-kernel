@@ -30,12 +30,32 @@ daemon_start() {
     ' || return 1
 
     ok "dockerd started"
+
+    # Bring back exactly what was running before the last stop.
+    #
+    # Docker only auto-restarts containers with a restart policy, and a compose
+    # stack typically sets one on some services and not others. Stopping the
+    # daemon therefore returns a HALF-STARTED stack: ERPNext came back with
+    # frontend, scheduler, websocket and both queues up, but no db, no redis and
+    # no backend, so the site served 502 and looked like an application fault.
+    if [ -s "$STATE/was-running" ]; then
+        n=0
+        while IFS= read -r c; do
+            [ -n "$c" ] || continue
+            in_chroot_exec docker start "$c" >/dev/null 2>&1 && n=$((n+1))
+        done < "$STATE/was-running"
+        [ "$n" -gt 0 ] && ok "restored $n container(s)"
+        rm -f "$STATE/was-running"
+    fi
+
     vpn_holds_root && warn "a VPN app is capturing uid 0 into tun0 - image pulls may fail intermittently"
     return 0
 }
 
 daemon_stop() {
     running || { ok "dockerd not running"; return 0; }
+    # Record what was up so daemon_start can put it back; see there for why.
+    in_chroot_exec docker ps --format '{{.Names}}' 2>/dev/null > "$STATE/was-running"
     in_chroot 'docker ps -q 2>/dev/null | xargs -r docker stop -t 10' >/dev/null 2>&1
     pkill -x dockerd 2>/dev/null
     pkill -x containerd 2>/dev/null

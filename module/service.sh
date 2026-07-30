@@ -37,6 +37,10 @@ fi
 # the daemon: container startup is exactly when we least want to be suspended.
 wake_sync >> "$D/boot.log" 2>&1
 
+# Before the daemon: the tunnel no longer depends on Docker, and bringing the
+# way in up first means a failing daemon start is still diagnosable remotely.
+tunnel_supervise >> "$D/boot.log" 2>&1
+
 [ -f "$D/autostart" ] || exit 0
 daemon_start >> "$D/boot.log" 2>&1
 # --restart=always containers come back by themselves once dockerd is up.
@@ -54,6 +58,9 @@ while true; do
     # `auto` mode has to be re-evaluated as containers start and stop; this is
     # the only periodic hook we have.
     wake_sync
+    # cloudflared is a host process now, so nothing else restarts it. Without
+    # this a dropped tunnel stays dropped until someone notices.
+    tunnel_supervise >> "$D/boot.log" 2>&1
     # Notifies only when the address actually changed, so this is quiet.
     lan_watch_tick
 done &

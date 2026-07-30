@@ -109,6 +109,8 @@ case "$cmd" in
     printf 'lanip=%s\n'     "$(lan_ip)"
     printf 'lanwatch=%s\n' "$(lan_enabled && echo on || echo off)"
     printf 'uplinks=%s\n'   "$(uplinks | tr '\n' ' ')"
+    printf 'tunnel=%s\n'    "$(tunnel_mode)"
+    printf 'tunnelup=%s\n'  "$(tunnel_running && echo yes || echo no)"
     printf 'vpn=%s\n'       "$(vpn_holds_root && echo yes || echo no)"
     if running; then
         in_chroot_exec docker ps -a --format 'container={{.Names}}|{{.Status}}|{{.Image}}' 2>/dev/null
@@ -120,7 +122,8 @@ case "$cmd" in
       named)  tunnel_named ;;
       stop)   tunnel_stop ;;
       status) tunnel_status ;;
-      *)      bad "usage: dockerctl tunnel token <tok> | quick [url] | named | stop | status"; exit 1 ;;
+      log)    shift; tunnel_log "${1:-40}" ;;
+      *)      bad "usage: dockerctl tunnel token <tok> | quick [url] | named | stop | status | log [n]"; exit 1 ;;
     esac ;;
   ssh)
     # sshd lives in the chroot, not a container, so it survives dockerd being
