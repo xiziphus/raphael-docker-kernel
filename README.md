@@ -136,6 +136,29 @@ desktop. See [docs/DESKTOP.md](docs/DESKTOP.md).
 | `terminal-notifier` | notification relay | macOS registers it with alert style **None**, so notifications are accepted, filed silently into Notification Centre, and never appear. Set it to Banners |
 | `adb` | boot-partition backup | the chroot cannot see `/data`, so this is the only way |
 
+## Releases
+
+Get them from
+[Releases](https://github.com/xiziphus/raphael-docker-kernel/releases/latest).
+
+| File | What it is |
+|---|---|
+| `raphael-docker-kernel-vX.Y.Z.zip` | **The one most people want.** A KernelSU module: patches your boot image *in place*, then installs Docker. No PC |
+| `antigravity-docker-kernel-vX.Y.Z-AnyKernel3.zip` | Recovery-flashable. For getting KernelSU onto a device that has no root yet |
+| `boot-INFINITYX-3.11-ONLY.img` | A prebuilt boot image. **Read the caveat below before touching this** |
+| `Image.gz`, `kernel.config` | The kernel and the config it was built with, for inspection or your own repack |
+| `SHA256SUMS` | `shasum -a 256 -c SHA256SUMS` |
+
+The prebuilt `boot.img` is a copy of the boot partition from *one* device, so
+it carries that device's ramdisk and `os_patch_level`. Flashing it on any other
+build will bootloop or make `/data` unreadable, because Android derives its
+encryption keys from that field. Both zips avoid the problem entirely by
+patching whatever is already on your phone. It is published only for the case
+where you have neither recovery nor root.
+
+Every release names the kernel-source tag it was built from — see
+[Licence](#licence).
+
 ## Which path applies to you
 
 Everything hinges on one question: **do you already have KernelSU working?**
