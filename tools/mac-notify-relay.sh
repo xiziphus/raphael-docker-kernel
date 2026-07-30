@@ -19,13 +19,43 @@ LABEL=win.stratifyx.raphael.notify
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 
-# argv rather than string interpolation: message bodies contain quotes,
-# backslashes and apostrophes, and AppleScript string escaping is its own
-# small nightmare. Passing them as arguments sidesteps all of it.
+# Prefer terminal-notifier. `osascript ... display notification` is posted on
+# behalf of Script Editor, so it is governed by Script Editor's notification
+# permission -- and when that is off the call still returns 0 and displays
+# NOTHING. Silent success is the worst possible failure here: the relay looks
+# healthy, the cursor advances, and no notification ever appears.
+# terminal-notifier ships its own bundle id, so it shows up in System Settings
+# under its own name and can be allowed explicitly.
+#
+# In both cases the text goes as argv rather than interpolated into a script:
+# message bodies contain quotes and apostrophes, and AppleScript escaping is
+# its own small nightmare.
+# Resolved by absolute path, not just $PATH. launchd gives an agent
+# /usr/bin:/bin:/usr/sbin:/sbin and nothing else, so a Homebrew binary in
+# /usr/local/bin or /opt/homebrew/bin is invisible to it. This bit us exactly
+# once: the agent ran, polled, consumed the messages and advanced the cursor,
+# found no terminal-notifier, fell back to osascript, and dropped every
+# notification silently.
+NOTIFIER=$(command -v terminal-notifier 2>/dev/null || true)
+for c in /usr/local/bin/terminal-notifier /opt/homebrew/bin/terminal-notifier; do
+    [ -n "$NOTIFIER" ] && break
+    [ -x "$c" ] && NOTIFIER=$c
+done
+
 notify() {  # notify <title> <subtitle> <body>
-    osascript -e 'on run argv
-        display notification (item 3 of argv) with title (item 1 of argv) subtitle (item 2 of argv)
-    end run' "$1" "$2" "$3" >/dev/null 2>&1
+    # Logged so a silent drop is diagnosable after the fact. Both backends
+    # return 0 whether or not anything is displayed, so the log is the only
+    # record of which path was taken.
+    printf '%s  notify via %s: %s | %s\n' "$(date '+%H:%M:%S')" \
+        "${NOTIFIER:-osascript}" "$1" "$3" 
+    if [ -n "$NOTIFIER" ]; then
+        "$NOTIFIER" -title "$1" -subtitle "$2" -message "$3" \
+                    -group "raphael-relay" >/dev/null 2>&1
+    else
+        osascript -e 'on run argv
+            display notification (item 3 of argv) with title (item 1 of argv) subtitle (item 2 of argv)
+        end run' "$1" "$2" "$3" >/dev/null 2>&1
+    fi
 }
 
 reachable() { ssh -o ConnectTimeout=6 -o BatchMode=yes "$1" true >/dev/null 2>&1; }
@@ -42,7 +72,10 @@ fetch() { ssh -o ConnectTimeout=10 -o BatchMode=yes "$1" 'asu "dockerctl relay n
 
 pass() {
     host=$(pick_host) || return 1
-    fetch "$host" | while IFS=$'\t' read -r kind src title body; do
+    # US (\037), not tab: tab is IFS whitespace, so bash collapses consecutive
+    # tabs and an empty field between them disappears, shifting every later
+    # field left. That delivered SMS notifications with empty bodies.
+    fetch "$host" | while IFS=$'\037' read -r kind src title body; do
         [ -n "${kind:-}" ] || continue
         case "$kind" in
             sms) notify "SMS · $src" "" "$body" ;;
@@ -62,6 +95,9 @@ install_agent() {
   <key>ProgramArguments</key><array>
     <string>/bin/bash</string><string>$SELF</string>
   </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardErrorPath</key><string>/tmp/$LABEL.err</string>

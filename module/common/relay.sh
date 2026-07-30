@@ -8,10 +8,16 @@
 #   SMS            content://sms/inbox, cursored on the monotonic _id
 #   notifications  dumpsys notification --noredact, deduplicated by content
 #
-# Output is one record per line, tab separated, safe to pipe over ssh:
+# Output is one record per line, four fields separated by US (ASCII 31):
 #
-#   sms<TAB>+911234567890<TAB><TAB>message text
-#   app<TAB>com.whatsapp<TAB>Alice<TAB>message text
+#   sms<US>+911234567890<US><US>message text
+#   app<US>com.whatsapp<US>Alice<US>message text
+#
+# NOT tab. `IFS=$'\t' read a b c d` collapses runs of tabs, because tab is an
+# IFS whitespace character, so the empty title field on an SMS record silently
+# disappeared and every field after it shifted left -- the body landed in
+# `title` and the notification arrived with no text at all. US is
+# non-whitespace, so empty fields survive.
 #
 # The consumer is expected to be a poller (see tools/mac-notify-relay.sh).
 # Polling rather than pushing because the phone cannot reliably reach the Mac
@@ -50,7 +56,7 @@ relay_sms() {
         # Field-anchored, not comma-split: message bodies contain commas.
         addr=$(printf '%s' "$line" | sed -n 's/.*, address=\(.*\), body=.*/\1/p')
         body=$(printf '%s' "$line" | sed -n 's/.*, body=\(.*\)$/\1/p' | tr '\n\t' '  ')
-        printf 'sms\t%s\t\t%s\n' "${addr:-unknown}" "$body"
+        printf 'sms\037%s\037\037%s\n' "${addr:-unknown}" "$body"
         printf '%s\n' "$id" > "$RELAY_SMS_CUR"
     done
 }
@@ -84,7 +90,7 @@ relay_apps() {
         function emit() {
             if (pkg == "" || skip) return
             if (title == "" && text == "") return
-            printf "app\t%s\t%s\t%s\n", pkg, title, text
+            printf "app\037%s\037%s\037%s\n", pkg, title, text
         }
     ' | while IFS= read -r rec; do
         # Never relay our own notifications; that is a feedback loop.
