@@ -15,6 +15,12 @@ set -u
 LAN_HOST=${LAN_HOST:-raphael-lan}     # tried first: fast, no Cloudflare hop
 WAN_HOST=${WAN_HOST:-raphael}         # fallback: works off-network
 INTERVAL=${INTERVAL:-10}
+# Audible by default. If terminal-notifier's alert style is None -- which is
+# how macOS registers a CLI tool that has never been configured -- notifications
+# land silently in Notification Centre and never appear on screen, which looks
+# exactly like the relay being broken. A sound makes delivery observable
+# regardless. Set NOTIFY_SOUND= to silence.
+NOTIFY_SOUND=${NOTIFY_SOUND-Ping}
 LABEL=win.stratifyx.raphael.notify
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
@@ -49,8 +55,15 @@ notify() {  # notify <title> <subtitle> <body>
     printf '%s  notify via %s: %s | %s\n' "$(date '+%H:%M:%S')" \
         "${NOTIFIER:-osascript}" "$1" "$3" 
     if [ -n "$NOTIFIER" ]; then
+        # NO -group. In terminal-notifier a group shows only ONE notification
+        # at a time: each post REPLACES the previous one with the same group.
+        # A burst of messages therefore collapsed into a single banner that was
+        # overwritten faster than it could render, so nothing was seen.
         "$NOTIFIER" -title "$1" -subtitle "$2" -message "$3" \
-                    -group "raphael-relay" >/dev/null 2>&1
+                    ${NOTIFY_SOUND:+-sound "$NOTIFY_SOUND"} >/dev/null 2>&1
+        # Bursts also get coalesced by Notification Centre itself; a small gap
+        # keeps separate messages separate.
+        sleep 0.4
     else
         osascript -e 'on run argv
             display notification (item 3 of argv) with title (item 1 of argv) subtitle (item 2 of argv)
