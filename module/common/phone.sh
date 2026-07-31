@@ -13,6 +13,9 @@
 
 PH_STATE_F="$STATE/phone.callstate"    # last state we emitted for
 PH_NUM_F="$STATE/phone.callnum"
+PH_ON_F="$STATE/phone.alerts"          # exists = emit ring alerts
+
+phone_alerts_on() { [ -f "$PH_ON_F" ]; }
 
 phone_state() {
     dumpsys telephony.registry 2>/dev/null \
@@ -48,6 +51,7 @@ phone_name() {
 # Emit one record per RING EDGE. Called from relay_new, so it rides the poll
 # the desktop already makes -- no second cursor, no second consumer.
 phone_calls() {
+    phone_alerts_on || return 0
     st=$(phone_state); [ -n "$st" ] || return 0
     last=$(cat "$PH_STATE_F" 2>/dev/null)
     echo "$st" > "$PH_STATE_F"
@@ -68,7 +72,17 @@ phone_calls() {
 phone_answer() { input keyevent 5 && ok "answered"; }
 phone_reject() { input keyevent 6 && ok "rejected / hung up"; }
 
+phone_set() {
+    case "${1:-}" in
+        on)  touch "$PH_ON_F"; phone_state > "$PH_STATE_F" 2>/dev/null
+             ok "ring alerts ON" ;;
+        off) rm -f "$PH_ON_F"; ok "ring alerts OFF" ;;
+        *)   return 1 ;;
+    esac
+}
+
 phone_status() {
+    phone_alerts_on && ok "ring alerts enabled" || bad "ring alerts disabled"
     st=$(phone_state)
     case "${st:-}" in
         0) ok "idle" ;;

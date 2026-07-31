@@ -60,11 +60,46 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:
 select{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);
  background:var(--bg);color:var(--fg);font-size:14px}
 a{color:var(--accent)}
+
+/* --- shell -----------------------------------------------------------------
+   The page grew to nine stacked cards in one scroll, with the output pane a
+   screen and a half below the buttons that write to it. Same controls, but
+   grouped into panels behind a bottom tab bar: on a phone the bottom edge is
+   the only part of the screen a thumb reaches without regripping. */
+body{padding:0}
+header{position:sticky;top:0;z-index:5;background:var(--bg);
+ padding:14px 14px 10px;border-bottom:1px solid var(--line)}
+main{padding:14px 14px calc(74px + env(safe-area-inset-bottom))}
+.panel{display:none}
+.panel.on{display:block}
+
+/* Health strip: the six things worth knowing before you tap anything. */
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pill{font-size:11px;font-weight:600;padding:4px 9px;border-radius:20px;
+ border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.pill.ok{border-color:var(--ok);color:var(--ok)}
+.pill.bad{border-color:var(--bad);color:var(--bad)}
+.pill.warn{border-color:var(--warn);color:var(--warn)}
+
+nav{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;
+ background:var(--card);border-top:1px solid var(--line);
+ padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;min-width:0;background:transparent;color:var(--dim);
+ border:0;border-radius:0;padding:10px 2px;font-size:11px;font-weight:600;
+ min-height:56px;display:flex;flex-direction:column;align-items:center;
+ justify-content:center;gap:3px}
+nav button .ic{font-size:17px;line-height:1}
+nav button.on{color:var(--accent)}
 </style></head><body>
 
-<h1>Docker for Android</h1>
-<div class="sub" id="sub">raphael &middot; loading&hellip;</div>
+<header>
+  <h1>Docker for Android</h1>
+  <div class="sub" id="sub" style="margin:0">raphael &middot; loading&hellip;</div>
+  <div class="pills" id="pills"></div>
+</header>
+<main>
 
+<section class="panel on" id="p-home">
 <div class="card"><h2>Status</h2>
   <div class="row"><span class="k">Kernel</span><span class="v" id="s-kernel">…</span></div>
   <div class="row"><span class="k">Debian rootfs</span><span class="v" id="s-rootfs">…</span></div>
@@ -96,6 +131,9 @@ a{color:var(--accent)}
   </div>
 </div>
 
+</section>
+
+<section class="panel" id="p-svc">
 <div class="card"><h2>Find me on the LAN</h2>
   <div class="sub" style="margin:0 0 8px">
     DHCP moves this phone. Publishing puts the current address in the
@@ -109,6 +147,9 @@ a{color:var(--accent)}
   <div class="btns"><button id="b-lannow" class="ghost">Publish now</button></div>
 </div>
 
+</section>
+
+<section class="panel" id="p-pwr">
 <div class="card"><h2>Power</h2>
   <div class="row"><span class="k">Battery</span><span class="v" id="s-batt">…</span></div>
   <div class="row">
@@ -146,6 +187,9 @@ a{color:var(--accent)}
   </div>
 </div>
 
+</section>
+
+<section class="panel" id="p-svc2">
 <div class="card"><h2>Portainer</h2>
   <div class="sub" style="margin:0 0 6px">Web UI for containers, on port 9000.</div>
   <div class="btns">
@@ -170,6 +214,19 @@ a{color:var(--accent)}
   <div class="btns"><button id="b-token" class="ghost">Save token &amp; connect</button></div>
 </div>
 
+<div class="card"><h2>Calls</h2>
+  <div class="sub" style="margin:0 0 8px">
+    Rings your desktop when the phone rings, with the caller's name. Answer or
+    decline from there. Call <em>audio</em> stays on the phone &mdash; Android
+    does not let anything capture it.
+  </div>
+  <div class="row">
+    <span class="k">Ring alerts<br><span style="font-size:12px;color:var(--dim)">delivered by the notification relay</span>
+      <br><span class="v" id="callnote" style="font-size:12px"></span></span>
+    <label class="sw"><input type="checkbox" id="calls"><span class="sl"></span></label>
+  </div>
+</div>
+
 <div class="card" id="card-hermes"><h2>Hermes Agent</h2>
   <div class="sub" style="margin:0 0 8px">
     An AI agent with a web dashboard, running as a container. Its tools act
@@ -184,9 +241,25 @@ a{color:var(--accent)}
   <div class="btns"><button id="b-hermlog" class="ghost">Log</button></div>
 </div>
 
+</section>
+
+<section class="panel" id="p-ct">
 <div class="card"><h2>Containers</h2><div id="cts" class="sub">…</div></div>
 
+</section>
+
+<section class="panel" id="p-log">
 <div class="card"><h2>Output</h2><pre id="out">ready</pre></div>
+</section>
+</main>
+
+<nav>
+  <button data-tab="home" class="on"><span class="ic">◉</span>Home</button>
+  <button data-tab="svc"><span class="ic">⇄</span>Services</button>
+  <button data-tab="ct"><span class="ic">▤</span>Containers</button>
+  <button data-tab="pwr"><span class="ic">⚡</span>Power</button>
+  <button data-tab="log"><span class="ic">≡</span>Log</button>
+</nav>
 
 <script>
 // KernelSU's WebUI bridge: ksu.exec(cmd, optsJson, globalCallbackName), which
@@ -277,6 +350,26 @@ async function refresh(){
     ? 'Tap <span class="wk on" style="display:inline-flex;min-height:0;min-width:0;padding:2px 8px">awake</span> beside a container to watch it.'
     : 'Watch list applies only in <b>While watched containers run</b> mode.';
 
+  document.getElementById("calls").checked=(st.calls==="on");
+  var cn=document.getElementById("callnote");
+  if(st.calls==="on"){
+    cn.textContent=(st.callstate==="1")?"RINGING now":(st.callstate==="2"?"in a call":"idle — watching");
+    cn.className="v "+(st.callstate==="0"?"ok":"warn");
+  } else {cn.textContent="";cn.className="v";}
+
+  // Health strip: what you want to know before tapping anything.
+  var bt=parseInt(st.batt||"0",10), chg=(st.battst==="Charging"||st.battst==="Full");
+  var pills=[
+    ["docker", st.daemon==="ok"?"ok":"bad"],
+    ["net",    st.net==="ok"?"ok":"bad"],
+    ["ssh",    st.sshdrun==="yes"?"ok":"bad"],
+    ["tunnel", st.tunnelup==="yes"?"ok":"bad"],
+    [(st.batt||"?")+"%"+(chg?" ⚡":""), chg?"ok":(bt<=parseInt(st.cutoff||"20",10)?"bad":(bt<40?"warn":"ok"))],
+    [st.lanip||"no LAN", st.lanip?"ok":"bad"]
+  ];
+  document.getElementById("pills").innerHTML=pills.map(function(p){
+    return '<span class="pill '+p[1]+'">'+esc(p[0])+'</span>';}).join("");
+
   document.getElementById("sub").textContent="raphael · "+(st.daemon==="ok"?"Docker running":"Docker stopped");
   var box=document.getElementById("cts");
   if(!cts.length){box.textContent=st.daemon==="ok"?"none":"start Docker to see containers";box.className="sub";}
@@ -338,6 +431,9 @@ document.getElementById("lanwatch").addEventListener("change",function(e){
   run("lan "+(e.target.checked?"on":"off"),"LAN notify");
 });
 document.getElementById("b-lannow").onclick=function(){run("lan now","publishing address");};
+document.getElementById("calls").addEventListener("change",function(e){
+  run("phone "+(e.target.checked?"on":"off"),"ring alerts");
+});
 document.getElementById("hermes").addEventListener("change",function(e){
   run("hermes "+(e.target.checked?"on":"off"),"hermes dashboard");
 });
@@ -362,5 +458,26 @@ document.getElementById("b-token").onclick =function(){
   document.getElementById("cftok").value="";
   run("tunnel token "+t,"connecting tunnel");
 };
+// Tabs. "svc" spans two sections because the services cards are not
+// contiguous in source order -- match on the id prefix rather than reordering
+// the markup and risking a lost control.
+function tab(name){
+  document.querySelectorAll(".panel").forEach(function(el){
+    el.classList.toggle("on", el.id === "p-"+name || el.id.indexOf("p-"+name) === 0);
+  });
+  document.querySelectorAll("nav button").forEach(function(b){
+    b.classList.toggle("on", b.getAttribute("data-tab") === name);
+  });
+  window.scrollTo(0,0);
+}
+document.querySelectorAll("nav button").forEach(function(b){
+  b.onclick=function(){ tab(b.getAttribute("data-tab")); };
+});
+
+// A tap that changes state jumps to the Log panel, because the output pane
+// used to be a screen and a half below the button that wrote to it.
+var _run=run;
+run=function(cmd,label){ tab("log"); return _run(cmd,label); };
+
 refresh();
 </script></body></html>

@@ -15,7 +15,7 @@
 #   dockerctl power guard on|off|cutoff <pct>|notify on|off|now|stopall|status
 #   dockerctl lan now|on|off|ip|status          publish the LAN address
 #   dockerctl hermes on|off|status|log [n]      Hermes Agent dashboard
-#   dockerctl phone status|answer|reject        incoming calls
+#   dockerctl phone on|off|status|answer|reject  incoming-call alerts
 #   dockerctl relay new|reset         new SMS/notifications, for the desktop
 #   dockerctl autostart on|off|status start the daemon at boot
 #   dockerctl json                    all state as key=value, for the WebUI
@@ -90,6 +90,7 @@ case "$cmd" in
     esac ;;
   phone)
     case "${1:-status}" in
+      on|off) phone_set "$1" ;;
       status) phone_status ;;
       answer) phone_answer ;;
       reject|hangup) phone_reject ;;
@@ -180,6 +181,7 @@ case "$cmd" in
     printf 'hermesrun=%s\n' "$(hermes_running && echo yes || echo no)"
     printf 'hermesok=%s\n'  "$(hermes_installed && echo yes || echo no)"
     printf 'hermesport=%s\n' "$(hermes_port)"
+    printf 'calls=%s\n'     "$(phone_alerts_on && echo on || echo off)"
     printf 'callstate=%s\n' "$(phone_state)"
     printf 'tunnel=%s\n'    "$(tunnel_mode)"
     printf 'tunnelup=%s\n'  "$(tunnel_running && echo yes || echo no)"
