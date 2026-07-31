@@ -48,6 +48,27 @@ for c in /usr/local/bin/terminal-notifier /opt/homebrew/bin/terminal-notifier; d
     [ -x "$c" ] && NOTIFIER=$c
 done
 
+# Where full message bodies live so a click can show the untruncated text.
+# NOT the log: the log is for "did delivery work" and gets copied into backups
+# and support bundles. This is 0700/0600 under Application Support, pruned to
+# the newest RELAY_KEEP files, and holds nothing older than that. Set
+# RELAY_KEEP=0 to disable click-to-open and store nothing at all.
+STORE="$HOME/Library/Application Support/raphael-relay"
+RELAY_KEEP=${RELAY_KEEP:-100}
+
+store_body() {  # store_body <title> <body> -> prints the file path, or nothing
+    [ "$RELAY_KEEP" -gt 0 ] 2>/dev/null || return 0
+    mkdir -p "$STORE" 2>/dev/null || return 0
+    chmod 700 "$STORE" 2>/dev/null
+    f="$STORE/$(date '+%Y%m%d-%H%M%S')-$$.txt"
+    { printf '%s\n' "$1"; printf '%s\n\n' "$(date '+%a %d %b %H:%M')"; printf '%s\n' "$2"; } > "$f" 2>/dev/null || return 0
+    chmod 600 "$f" 2>/dev/null
+    # Prune oldest beyond RELAY_KEEP. ls -t is fine here: our own filenames,
+    # no spaces, no newlines.
+    ls -t "$STORE"/*.txt 2>/dev/null | tail -n +$((RELAY_KEEP+1)) | xargs -r rm -f 2>/dev/null
+    printf '%s' "$f"
+}
+
 notify() {  # notify <title> <subtitle> <body>
     # Logged so a silent drop is diagnosable after the fact. Both backends
     # return 0 whether or not anything is displayed, so the log is the only
@@ -65,7 +86,12 @@ notify() {  # notify <title> <subtitle> <body>
         # at a time: each post REPLACES the previous one with the same group.
         # A burst of messages therefore collapsed into a single banner that was
         # overwritten faster than it could render, so nothing was seen.
+        # macOS renders roughly two lines in a banner whatever you pass, so a
+        # long SMS is always clipped on screen. -execute makes the notification
+        # clickable: it opens the stored full text in TextEdit.
+        f=$(store_body "$1" "$3")
         "$NOTIFIER" -title "$1" -subtitle "$2" -message "$3" \
+                    ${f:+-execute "/usr/bin/open -e '$f'"} \
                     ${NOTIFY_SOUND:+-sound "$NOTIFY_SOUND"} >/dev/null 2>&1
         # Bursts also get coalesced by Notification Centre itself; a small gap
         # keeps separate messages separate.
@@ -77,7 +103,13 @@ notify() {  # notify <title> <subtitle> <body>
     fi
 }
 
-reachable() { ssh -o ConnectTimeout=6 -o BatchMode=yes "$1" true >/dev/null 2>&1; }
+# ConnectTimeout bounds the HANDSHAKE ONLY. A session that connects and then
+# stalls -- tunnel hiccup, phone suspending mid-read -- blocks forever, and the
+# whole poll loop parks on it. Observed: one hung fetch through the Cloudflare
+# tunnel wedged the relay for an hour with the agent still showing as healthy.
+# ServerAlive* is what actually bounds a live-but-silent session.
+SSH_TMO="-o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o BatchMode=yes"
+reachable() { ssh $SSH_TMO "$1" true >/dev/null 2>&1; }
 
 pick_host() {
     reachable "$LAN_HOST" && { echo "$LAN_HOST"; return 0; }
@@ -87,7 +119,11 @@ pick_host() {
 
 # dockerctl lives on the Android side, not in the chroot the ssh session lands
 # in, so it is reached through the asu helper.
-fetch() { ssh -o ConnectTimeout=10 -o BatchMode=yes "$1" 'asu "dockerctl relay new"' 2>/dev/null; }
+# NOTE: `relay new` is a DESTRUCTIVE READ -- it advances the cursor on the
+# phone. If the session dies after the read but before the output arrives here,
+# those messages are lost permanently. The timeouts above make that window
+# small; closing it entirely needs a two-phase (peek/ack) protocol in relay.sh.
+fetch() { ssh $SSH_TMO "$1" 'asu "dockerctl relay new"' 2>/dev/null; }
 
 pass() {
     host=$(pick_host) || return 1
@@ -97,7 +133,10 @@ pass() {
     fetch "$host" | while IFS=$'\037' read -r kind src title body; do
         [ -n "${kind:-}" ] || continue
         case "$kind" in
-            sms) notify "SMS · $src" "" "$body" ;;
+            # Subtitle was empty, wasting one of the two lines macOS shows.
+            # Put the sender there and keep the title short, so more of the
+            # body survives the banner.
+            sms) notify "SMS" "$src" "$body" ;;
             app) notify "${title:-$src}" "$src" "$body" ;;
             *)   continue ;;
         esac
@@ -119,13 +158,14 @@ install_agent() {
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardErrorPath</key><string>/tmp/$LABEL.err</string>
-  <key>StandardOutPath</key><string>/tmp/$LABEL.out</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/raphael-notify.err</string>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/raphael-notify.log</string>
 </dict></plist>
 PLIST
     launchctl unload "$PLIST" 2>/dev/null
     launchctl load  "$PLIST" && echo "installed and started: $LABEL"
-    echo "  logs: /tmp/$LABEL.out  /tmp/$LABEL.err"
+    # NOT /tmp: world-readable, and these logs are about SMS.
+    echo "  logs: ~/Library/Logs/raphael-notify.log"
     echo "  stop: launchctl unload $PLIST"
 }
 
