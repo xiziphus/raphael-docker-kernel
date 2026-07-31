@@ -41,16 +41,17 @@ wake_sync >> "$D/boot.log" 2>&1
 # way in up first means a failing daemon start is still diagnosable remotely.
 tunnel_supervise >> "$D/boot.log" 2>&1
 
-# Also before the daemon: hermes runs in the chroot, not a container, so it has
-# no dependency on dockerd and there is no reason to make it wait.
-hermes_supervise >> "$D/boot.log" 2>&1
-
 [ -f "$D/autostart" ] || exit 0
 daemon_start >> "$D/boot.log" 2>&1
 # --restart=always containers come back by themselves once dockerd is up.
 # Re-sync now that containers exist -- `auto` mode could not evaluate its watch
 # list until dockerd was up.
 wake_sync >> "$D/boot.log" 2>&1
+
+# Hermes is a CONTAINER now, so unlike sshd and cloudflared it cannot start
+# before dockerd. It no-ops when the daemon is down and the 60 s loop below
+# picks it up once the daemon is running.
+hermes_supervise >> "$D/boot.log" 2>&1
 
 # netd rewrites its rules on every Wi-Fi/mobile transition, silently breaking
 # container networking mid-session. Re-assert ours; a no-op when already

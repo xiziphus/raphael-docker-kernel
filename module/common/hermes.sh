@@ -1,82 +1,113 @@
 #!/system/bin/sh
-# hermes.sh - Hermes Agent dashboard.  . lib.sh, mount.sh, tunnel.sh first.
+# hermes.sh - Hermes Agent dashboard, as a container.  . lib.sh, mount.sh,
+# daemon.sh, tunnel.sh first.
 #
-# Hermes is an agentic assistant (NousResearch/hermes-agent) installed into the
-# chroot by its own installer. This file does not install it and deliberately
-# never will: the installer is 3000+ lines that clones a repo, builds a venv and
-# a web bundle, and wants a terminal. Wrapping that in a toggle would hide a
-# ten-minute network operation behind something that looks instant. The switch
-# only starts and stops the dashboard that the installer left behind.
+# Hermes (NousResearch/hermes-agent) is an agentic assistant with a web
+# dashboard. This file does not install it -- it starts and stops a container
+# built from the published image.
 #
-# Like sshd and cloudflared it runs as a PLAIN PROCESS IN THE CHROOT, so it
-# survives dockerd being stopped -- and so that the agent's shell tools see the
-# chroot rather than a container.
+# IT RUNS IN DOCKER, NOT THE CHROOT, and that is a deliberate trade:
+#   + one lifecycle, visible in Portainer and the container list
+#   + the agent's shell tools act inside the container, so an agent running
+#     commands as root cannot reach Android, /data/adb, or the tunnel
+#     credentials. Give it HTTP tools instead of a host shell
+#   - it DIES WITH DOCKER. sshd and cloudflared stayed chroot processes
+#     precisely so they survive a dockerd fault; hermes does not, and must never
+#     be treated as a way back in
 #
-# It binds LOOPBACK ONLY, and that is not adjustable from here. Three reasons,
-# in increasing order of importance:
-#   1. published bridge ports are not LAN-reachable on this device anyway;
-#   2. the dashboard refuses any Host header other than the interface it bound
-#      to (anti-DNS-rebinding, GHSA-ppp5-vxwm-4cf7) -- so a LAN bind would need
-#      the LAN address baked in at start time, and DHCP moves it;
-#   3. the agent runs shell commands as root in a chroot holding tunnel
-#      credentials and the container database. Loopback plus a tunnel is a
-#      deliberate choice, not an accident of configuration.
-#
-# Reaching it from outside therefore means adding an ingress rule to the tunnel
-# with a Host rewrite -- see hermes_hint below, which prints the exact stanza.
+# Two device-specific fixes are baked into the run arguments below. Neither is
+# guessable from the upstream compose file and both cost hours to find.
 
-HRM_BIN=/usr/local/bin/hermes       # inside the chroot
+HRM_CT=hermes
+HRM_IMAGE="${HRM_IMAGE:-nousresearch/hermes-agent:v2026.7.20}"
 HRM_PORT_DEFAULT=9119
 HRM_PORT_F="$STATE/hermes.port"
-HRM_STATE_F="$STATE/hermes"         # exists = start it at boot / keep it up
-HRM_LOG=/var/log/hermes-serve.log   # inside the chroot
+HRM_STATE_F="$STATE/hermes"        # exists = keep it up / start it at boot
+HRM_PASSWD=/root/hermes-passwd     # inside the chroot; see hermes_fixups
 
 hermes_port() {
     p=$(cat "$HRM_PORT_F" 2>/dev/null | tr -dc '0-9')
     echo "${p:-$HRM_PORT_DEFAULT}"
 }
 
-hermes_installed() { in_chroot "test -x $HRM_BIN" >/dev/null 2>&1; }
-hermes_enabled()   { [ -f "$HRM_STATE_F" ]; }
+hermes_enabled()  { [ -f "$HRM_STATE_F" ]; }
+hermes_have_img() { in_chroot_exec docker image inspect "$HRM_IMAGE" >/dev/null 2>&1; }
+hermes_have_ct()  { in_chroot_exec docker inspect "$HRM_CT" >/dev/null 2>&1; }
+hermes_installed(){ hermes_have_img; }
 
-# Match the listener, not the name. `pgrep -f hermes` also matches the agent
-# CLI, a `hermes chat` session, and this very command line when it runs inside
-# the chroot -- all of which would report a dashboard that is not there.
+# Test the LISTENER, not `docker ps`. The container reports "running" for the
+# ~30 s its s6 tree spends syncing skills and loading 53 plugins, and it stayed
+# "running" throughout a restart loop during which nothing was ever served.
 hermes_running() {
-    in_chroot "ss -ltn 2>/dev/null | grep -q '127.0.0.1:$(hermes_port) '" >/dev/null 2>&1
+    in_chroot "ss -ltn 2>/dev/null | grep -q ':$(hermes_port) '" >/dev/null 2>&1
 }
 
-# The installer builds the web bundle into hermes_cli/web_dist, NOT web/dist.
-# Starting without it serves a blank page and logs nothing useful, so check.
-hermes_built() {
-    in_chroot 'test -f /usr/local/lib/hermes-agent/hermes_cli/web_dist/index.html' >/dev/null 2>&1
+# The image runs its services as the unprivileged `hermes` user (uid 10000), and
+# on this kernel that uid CANNOT OPEN A SOCKET AT ALL:
+#
+#     uid 0                        -> bound
+#     uid 10000                    -> PermissionError: Operation not permitted
+#     uid 10000 --group-add 3003   -> PermissionError  (still)
+#
+# Android gates socket creation on `in_group_p(AID_INET) || capable(CAP_NET_RAW)`.
+# Adding AID_INET (3003) is what rescued cloudflared, but it does not help here:
+# s6-setuidgid re-initialises supplementary groups from the image's own group
+# database, discarding whatever --group-add supplied.
+#
+# The failure surfaces as
+#     ERROR: could not bind on any address out of [('127.0.0.1', 9119)]
+# which reads as a port conflict. It is not -- nothing else holds the port.
+#
+# Both the entrypoint wrapper and the dashboard service gate the drop on
+# `[ "$(id -u)" = 0 ]`, so the fix is to make `s6-setuidgid hermes` land on uid
+# 0: override /etc/passwd so `hermes` IS uid 0. HERMES_UID=0 does NOT work --
+# the stage2 hook's usermod cannot take a uid already owned by root, fails
+# silently, and leaves files owned by 10000.
+hermes_fixups() {
+    in_chroot "
+      [ -s $HRM_PASSWD ] && exit 0
+      docker run --rm --entrypoint /bin/cat '$HRM_IMAGE' /etc/passwd > $HRM_PASSWD 2>/dev/null || exit 1
+      sed -i 's/^hermes:x:10000:10000:/hermes:x:0:0:/' $HRM_PASSWD
+      grep -q '^hermes:x:0:0:' $HRM_PASSWD
+    " >/dev/null 2>&1
+}
+
+hermes_create() {
+    hermes_fixups || { bad "could not build the passwd override"; return 1; }
+    # --network host: published bridge ports are not LAN-reachable on this
+    # device, and the dashboard refuses any Host header but the interface it
+    # bound to, so a bridge address would be rejected anyway.
+    #
+    # The `dashboard` subcommand is MANDATORY. With no command the image runs
+    # bare `hermes`, which is the INTERACTIVE CHAT: with no tty it exits at once
+    # and the container restart-loops every ~25 s, logging no error at all.
+    in_chroot "docker rm -f $HRM_CT >/dev/null 2>&1
+      docker run -d --name $HRM_CT --network host --restart unless-stopped \
+        -v $HRM_PASSWD:/etc/passwd:ro \
+        -v /root/.hermes:/opt/data \
+        -e TZ=\${TZ:-UTC} --memory 2g \
+        '$HRM_IMAGE' dashboard --host 127.0.0.1 --port $(hermes_port) --no-open" >/dev/null 2>&1
 }
 
 hermes_start() {
-    hermes_installed || { bad "hermes not installed - see docs/HERMES.md"; return 1; }
-    if ! hermes_built; then
-        bad "web UI not built"
-        say "  cd /usr/local/lib/hermes-agent/web && npm install && npm run build"
-        return 1
-    fi
-    hermes_running && { ok "already running on 127.0.0.1:$(hermes_port)"; return 0; }
+    running || { bad "dockerd is not running - dockerctl start"; return 1; }
+    hermes_have_img || { bad "image $HRM_IMAGE not present - see docs/HERMES.md"; return 1; }
+    # Record the intent even when it is already up. Returning early without
+    # touching the flag left `dockerctl hermes on` reporting [ok] while json
+    # still said hermes=off, so the WebUI toggle sprang back to off and the
+    # boot supervisor would not have restarted it.
+    hermes_running && { touch "$HRM_STATE_F"; ok "already listening on 127.0.0.1:$(hermes_port)"; return 0; }
 
-    port=$(hermes_port)
-    # setsid: without it the server is a child of this shell and dies with the
-    # WebUI's ksu.exec, which is a short-lived process.
-    in_chroot "export PATH=/usr/local/bin:\$PATH
-               mkdir -p /var/log
-               setsid nohup $HRM_BIN dashboard --host 127.0.0.1 --port $port \
-                   --skip-build --no-open >> $HRM_LOG 2>&1 < /dev/null &" || return 1
+    if hermes_have_ct; then in_chroot_exec docker start "$HRM_CT" >/dev/null 2>&1
+    else hermes_create || { bad "could not create the container"; return 1; }; fi
 
+    # s6 init, skill sync and plugin discovery take well over a minute here.
     i=0
-    while [ $i -lt 20 ]; do
-        hermes_running && break
-        sleep 1; i=$((i+1))
-    done
+    while [ $i -lt 40 ]; do hermes_running && break; sleep 3; i=$((i+1)); done
+
     if hermes_running; then
         touch "$HRM_STATE_F"
-        ok "hermes dashboard on 127.0.0.1:$port"
+        ok "hermes dashboard on 127.0.0.1:$(hermes_port)"
         hermes_hint
     else
         bad "did not come up - dockerctl hermes log"
@@ -86,23 +117,28 @@ hermes_start() {
 
 hermes_stop() {
     rm -f "$HRM_STATE_F"
-    in_chroot "pkill -f 'hermes dashboard'" >/dev/null 2>&1
+    in_chroot_exec docker stop "$HRM_CT" >/dev/null 2>&1
     sleep 1
-    hermes_running && { bad "still listening on 127.0.0.1:$(hermes_port)"; return 1; }
+    hermes_running && { bad "still listening on :$(hermes_port)"; return 1; }
     ok "hermes dashboard stopped"
 }
 
-# Restart it if it is supposed to be up and is not. Called from the boot loop
-# alongside tunnel_supervise.
+# The restart policy covers a crash, but not `dockerctl stop` then start, and
+# not a boot where dockerd comes up after this first ran.
 hermes_supervise() {
     hermes_enabled || return 0
+    running || return 0
     hermes_running && return 0
     hermes_start >/dev/null 2>&1
 }
 
 # Print the ingress stanza rather than editing config.yml. The Host rewrite is
-# the non-obvious half and silently omitting it yields a 400 from the origin
-# that reads like a tunnel fault.
+# the non-obvious half: without it the origin returns 400 "Invalid Host header"
+# (anti-DNS-rebinding, GHSA-ppp5-vxwm-4cf7), which reads as a tunnel fault.
+#
+# cloudflared does NOT reload ingress on SIGHUP -- verified on 2026.7.3, no
+# reload line appears in its log and the new hostname keeps returning the
+# catch-all 404. Restart it.
 hermes_hint() {
     port=$(hermes_port)
     if in_chroot "grep -q ':$port' $CF_DIR/config.yml" >/dev/null 2>&1; then
@@ -114,19 +150,22 @@ hermes_hint() {
         say "        originRequest:"
         say "          httpHostHeader: 127.0.0.1:$port"
         say "  then: cloudflared tunnel route dns <tunnel> hermes.example.com"
+        say "        dockerctl tunnel named        # SIGHUP will not reload it"
     fi
 }
 
-hermes_log() { in_chroot "tail -n ${1:-40} $HRM_LOG" 2>/dev/null; }
+hermes_log() { in_chroot_exec docker logs --tail "${1:-40}" "$HRM_CT" 2>&1; }
 
 hermes_status() {
-    hermes_installed || { bad "not installed"; return 1; }
+    hermes_have_img || { bad "image not present ($HRM_IMAGE)"; return 1; }
     hermes_enabled && ok "enabled" || bad "not enabled"
-    hermes_built   || warn "web UI not built - it will serve a blank page"
+    running || { bad "dockerd stopped - hermes cannot run"; return 1; }
+    st=$(in_chroot_exec docker inspect -f '{{.State.Status}} restarts={{.RestartCount}}' "$HRM_CT" 2>/dev/null)
+    [ -n "$st" ] && say "  container: $st"
     if hermes_running; then
         ok "listening on 127.0.0.1:$(hermes_port)"
         hermes_hint
     else
-        bad "not running"
+        bad "not listening"
     fi
 }

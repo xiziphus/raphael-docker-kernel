@@ -22,8 +22,23 @@ SSH_LAN_F="$STATE/sshlan"        # exists = also listen on the LAN
 SSH_KEYS=/root/.ssh/authorized_keys
 
 sshd_installed() { in_chroot 'test -x /usr/sbin/sshd' >/dev/null 2>&1; }
-sshd_running()   { in_chroot 'pgrep -x sshd >/dev/null' >/dev/null 2>&1; }
 sshd_lan()       { [ -f "$SSH_LAN_F" ]; }
+
+# Match the LISTENER, not the process name.
+#
+# `pgrep -x sshd` matches ANY sshd on the device, including one inside a
+# container in its own namespace. During a recovery that is exactly what
+# happened: a rescue container held :2222, the real sshd could not start because
+# /run/sshd had the wrong ownership, and sshd_enable still printed
+#     [ok] sshd on 0.0.0.0:2222 - LAN and tunnel
+# because pgrep found the container's copy. Two layers each reported success on
+# the strength of the other, and the fault only surfaced when that container was
+# removed and every remote path went dark at once.
+#
+# A bound port is what callers actually care about, so test that instead.
+sshd_running() {
+    in_chroot "ss -ltn 'sport = :$(sshd_port)' 2>/dev/null | grep -q LISTEN" >/dev/null 2>&1
+}
 
 sshd_port() {
     p=$(in_chroot "grep -rhsE '^[[:space:]]*Port[[:space:]]+[0-9]+' \

@@ -50,6 +50,13 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:
    matter and THEN turn auto on; disabling the pills outside auto mode inverts
    that order and leaves you unable to build the list at all. */
 .wk.idle{opacity:.5}
+/* Per-container run/stop pill. Same 44px touch target as .wk -- these sit in a
+   scrolling list and a mis-tap here stops a service. */
+.pw{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+ min-height:44px;min-width:60px;padding:0 12px;border:1px solid var(--line);
+ border-radius:22px;font-size:12px;color:var(--dim);cursor:pointer;
+ user-select:none;white-space:nowrap}
+.pw.on{border-color:var(--ok);color:var(--ok)}
 select{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);
  background:var(--bg);color:var(--fg);font-size:14px}
 a{color:var(--accent)}
@@ -165,8 +172,9 @@ a{color:var(--accent)}
 
 <div class="card" id="card-hermes"><h2>Hermes Agent</h2>
   <div class="sub" style="margin:0 0 8px">
-    An AI agent with a web dashboard, running in the chroot. It executes shell
-    commands as root &mdash; keep it behind the tunnel, never on the LAN.
+    An AI agent with a web dashboard, running as a container. Its tools act
+    inside that container, not on the phone &mdash; but it still needs the
+    tunnel, never the LAN. Stops when Docker stops.
   </div>
   <div class="row">
     <span class="k">Dashboard<br><span style="font-size:12px;color:var(--dim)">loopback only &mdash; reach it through a tunnel hostname</span>
@@ -280,8 +288,19 @@ async function refresh(){
     return '<div class="ct"><span class="meta"><span class="n">'+esc(name)+'</span><br>'+
       '<span class="s '+(up?"ok":"dim")+'">'+esc(p[1]||"")+'</span></span>'+
       '<span class="wk'+(on?" on":"")+(autoMode?"":" idle")+'" data-ct="'+esc(name)+'">'+
-      (on?"awake ✓":"awake")+'</span></div>';
+      (on?"awake ✓":"awake")+'</span>'+
+      '<span class="pw'+(up?" on":"")+'" data-pw="'+esc(name)+'" data-up="'+(up?"1":"0")+'">'+
+      (up?"on":"off")+'</span></div>';
   }).join("");
+  box.querySelectorAll(".pw").forEach(function(el){
+    el.onclick=function(){
+      var n=el.getAttribute("data-pw"), up=el.getAttribute("data-up")==="1";
+      // `dockerctl start` is the DAEMON, not a container -- the bare verbs are
+      // matched before the docker passthrough. `container start` is required.
+      if(up && !confirm("Stop "+n+"?")) return;
+      run("container "+(up?"stop ":"start ")+n,(up?"stopping ":"starting ")+n);
+    };
+  });
   box.querySelectorAll(".wk").forEach(function(el){
     el.onclick=function(){
       var n=el.getAttribute("data-ct");

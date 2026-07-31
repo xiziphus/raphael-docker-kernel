@@ -52,8 +52,14 @@ notify() {  # notify <title> <subtitle> <body>
     # Logged so a silent drop is diagnosable after the fact. Both backends
     # return 0 whether or not anything is displayed, so the log is the only
     # record of which path was taken.
-    printf '%s  notify via %s: %s | %s\n' "$(date '+%H:%M:%S')" \
-        "${NOTIFIER:-osascript}" "$1" "$3" 
+    #
+    # The BODY IS NEVER LOGGED. These are SMS: a single backlog replay after an
+    # outage wrote live bank OTPs and account balances into a world-readable
+    # file under /tmp. The log answers "did delivery work", which needs the
+    # sender and a length -- not the text. Anything that reads logs later
+    # (a backup, a crash report, a support bundle) would otherwise carry them.
+    printf '%s  notify via %s: %s | %s chars\n' "$(date '+%H:%M:%S')" \
+        "${NOTIFIER:-osascript}" "$1" "${#3}"
     if [ -n "$NOTIFIER" ]; then
         # NO -group. In terminal-notifier a group shows only ONE notification
         # at a time: each post REPLACES the previous one with the same group.

@@ -7,25 +7,63 @@ for the dashboard once you have installed it yourself.
 
 ## Installing
 
+**Use the published image, not the shell installer.** There is an official
+`nousresearch/hermes-agent` image with an arm64 build, and on this device it is
+strictly less work than the installer, which wants a repo clone, a Python venv,
+a Node toolchain and a Vite build:
+
 ```sh
-ssh raphael
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+dockerctl pull nousresearch/hermes-agent:v2026.7.20
+dockerctl hermes on
 ```
 
-Running as root it uses the FHS layout: code in `/usr/local/lib/hermes-agent`,
-`hermes` on `PATH`, config in `/root/.hermes/`.
+Config lives in `/root/.hermes` inside the chroot and is bind-mounted to
+`/opt/data` in the container, so it survives image upgrades — and an existing
+install from the shell installer can be adopted with no migration.
 
-Two things about this environment specifically:
+Pin the tag. `:latest` currently ships **zstd-compressed layers**, which Docker
+20.10 cannot unpack; see [Pulling images](#pulling-images) below.
 
-- **The setup wizard needs a terminal.** Piped from `curl`, the installer runs
-  every runtime stage and then logs *"Setup wizard skipped (no terminal
-  available)"*, stopping before the two stages that need your API keys. Run
-  `ssh -t raphael 'hermes setup'` afterwards, or configure it in the dashboard.
-- **`systemctl` exists in the chroot but systemd is not PID 1.** The installer
-  guards its gateway service install on `command -v systemctl`, which is a false
-  positive here — it will try, fail, and warn. Nothing breaks; it just means
-  `hermes gateway` will not self-start. Supervise it the way `sshd` and
-  `cloudflared` are supervised, from `service.sh`.
+Configure API keys in the dashboard. If you use the shell installer instead,
+note that piped from `curl` there is no terminal, so it logs *"Setup wizard
+skipped"* and stops before the stages that need your keys — run
+`ssh -t raphael 'hermes setup'` afterwards.
+
+### Three things that will waste your afternoon
+
+**The subcommand is mandatory.** With no command the image runs bare `hermes`,
+which is the *interactive chat*. With no tty it exits immediately and the
+container restart-loops every ~25 seconds **logging no error whatsoever** — the
+only clue is a climbing `RestartCount`.
+
+**It cannot open a socket as its own user.** The image drops to `hermes`
+(uid 10000) via `s6-setuidgid`, and Android gates socket creation on
+`in_group_p(AID_INET) || capable(CAP_NET_RAW)`. Measured:
+
+| | |
+|---|---|
+| uid 0 | binds |
+| uid 10000 | `PermissionError: Operation not permitted` |
+| uid 10000 + `--group-add 3003` | still fails |
+
+`--group-add` is what rescued cloudflared, and it does **not** work here —
+`s6-setuidgid` re-initialises supplementary groups from the image's own group
+database and discards it. The fix is a `/etc/passwd` override making `hermes`
+uid 0, which `hermes.sh` builds automatically. `HERMES_UID=0` does not work:
+the stage2 `usermod` cannot take a uid root already owns, and fails silently.
+
+The symptom is the worst part —
+
+```
+ERROR: could not bind on any address out of [('127.0.0.1', 9119)]
+```
+
+— which reads as a port conflict. Nothing holds the port.
+
+**OOM does not look like OOM.** With too small a `--memory` cap the kernel
+reaps an s6 *child*, so Docker reports `OOMKilled=false` and a clean `exit=1`
+while `dmesg` plainly shows `oom_reaper: reaped process … (s6-supervise)`.
+Give it 2 GB.
 
 ## The switch
 
@@ -35,13 +73,18 @@ dockerctl hermes on | off | status | log [n]
 
 and a card in the WebUI, which hides itself when hermes is not installed.
 
-`on` starts the dashboard and records the choice, so `service.sh` brings it back
-at boot and restarts it if it dies — same 60-second supervise loop as the
-tunnel. Like `sshd` and `cloudflared` it runs as a **plain process in the
-chroot**, not a container, so it survives `dockerctl stop` and a dockerd crash.
+`on` starts the container and records the choice, so `service.sh` brings it back
+at boot and the 60-second supervise loop restarts it if it dies.
 
 `status` distinguishes *enabled* from *listening*, because the interesting
-failure is the one where they disagree.
+failure is the one where they disagree — and `hermes_running` tests the bound
+port rather than `docker ps`, since the container reports `running` for the
+minute-plus its s6 tree spends loading 53 plugins, and stayed `running`
+throughout a restart loop that never served anything.
+
+**Unlike `sshd` and `cloudflared`, this one dies with Docker.** Those are chroot
+processes precisely so they survive a dockerd fault. Hermes is a container, so
+it does not — never treat it as a way back in.
 
 ## It binds loopback only, on purpose
 
@@ -119,3 +162,26 @@ Cloudflare Access policy on the hostname.
 - **Do not install it over mobile data or on battery.** It is a repo clone, a
   Python venv, a Node toolchain and a web build. On this device the power guard
   will happily cut Docker, the tunnel and SSH out from under it mid-install.
+
+## Pulling images
+
+`:latest` ships **zstd-compressed layers** and Docker 20.10 cannot unpack them.
+It downloads the blob, verifies the digest — correct, that is the *compressed*
+blob — then feeds a zstd stream to a gzip reader:
+
+```
+failed to register layer: Error processing tar file(exit status 1):
+archive/tar: invalid tar header
+```
+
+The error names tar, so it reads like a corrupt download. It is not; retrying
+and switching registries both fail identically. Check the manifest before
+chasing storage drivers:
+
+```sh
+docker manifest inspect <image>:<tag> | grep mediaType | sort | uniq -c
+```
+
+Anything `application/vnd.oci.image.layer.v1.tar+zstd` will not pull. Pin to a
+tag that is all `+gzip`. This is not specific to Hermes — n8n's `:latest` has
+the same problem — and it will get more common until Docker is upgraded.
