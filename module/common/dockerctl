@@ -15,6 +15,7 @@
 #   dockerctl power guard on|off|cutoff <pct>|notify on|off|now|stopall|status
 #   dockerctl lan now|on|off|ip|status          publish the LAN address
 #   dockerctl hermes on|off|status|log [n]      Hermes Agent dashboard
+#   dockerctl phone status|answer|reject        incoming calls
 #   dockerctl relay new|reset         new SMS/notifications, for the desktop
 #   dockerctl autostart on|off|status start the daemon at boot
 #   dockerctl json                    all state as key=value, for the WebUI
@@ -28,7 +29,7 @@
 set -u
 D=/data/adb/docker
 . "$D/lib.sh"; . "$D/mount.sh"; . "$D/net.sh"; . "$D/daemon.sh"
-. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"; . "$D/power.sh"; . "$D/relay.sh"; . "$D/hermes.sh"
+. "$D/ui.sh"; . "$D/setup.sh"; . "$D/doctor.sh"; . "$D/tunnel.sh"; . "$D/wake.sh"; . "$D/lan.sh"; . "$D/sshd.sh"; . "$D/power.sh"; . "$D/relay.sh"; . "$D/hermes.sh"; . "$D/phone.sh"
 
 [ "$(id -u)" = 0 ] || { bad "must run as root: su -c 'dockerctl $*'"; exit 1; }
 
@@ -86,6 +87,13 @@ case "$cmd" in
       status) hermes_status ;;
       log)    shift; hermes_log "${1:-40}" ;;
       *)      bad "usage: dockerctl hermes on|off|status|log [n]"; exit 1 ;;
+    esac ;;
+  phone)
+    case "${1:-status}" in
+      status) phone_status ;;
+      answer) phone_answer ;;
+      reject|hangup) phone_reject ;;
+      *)      bad "usage: dockerctl phone status|answer|reject"; exit 1 ;;
     esac ;;
   relay)
     # Emits new SMS and app notifications as TSV, once each. Consumed by a
@@ -172,6 +180,7 @@ case "$cmd" in
     printf 'hermesrun=%s\n' "$(hermes_running && echo yes || echo no)"
     printf 'hermesok=%s\n'  "$(hermes_installed && echo yes || echo no)"
     printf 'hermesport=%s\n' "$(hermes_port)"
+    printf 'callstate=%s\n' "$(phone_state)"
     printf 'tunnel=%s\n'    "$(tunnel_mode)"
     printf 'tunnelup=%s\n'  "$(tunnel_running && echo yes || echo no)"
     printf 'vpn=%s\n'       "$(vpn_holds_root && echo yes || echo no)"

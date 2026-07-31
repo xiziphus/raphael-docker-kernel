@@ -108,7 +108,9 @@ relay_apps() {
     fi
 }
 
-relay_new() { relay_sms; relay_apps; }
+# Calls ride the same poll: one cursor, one consumer. See phone.sh for why
+# the dialer's own notification cannot be used for this.
+relay_new() { phone_calls 2>/dev/null; relay_sms; relay_apps; }
 
 relay_reset() {
     rm -f "$RELAY_SMS_CUR" "$RELAY_SEEN"

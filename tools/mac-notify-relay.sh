@@ -138,6 +138,20 @@ pass() {
             # body survives the banner.
             sms) notify "SMS" "$src" "$body" ;;
             app) notify "${title:-$src}" "$src" "$body" ;;
+            # kind=call: src=number, title=resolved name, body=ringing|missed.
+            # Clicking opens a chooser that answers or declines over ssh; the
+            # dialog runs from -execute so it cannot block the poll loop.
+            call)
+                if [ "$body" = ringing ]; then
+                    f=$(store_body "Call from ${title:-$src}" "$src")
+                    "${NOTIFIER:-echo}" -title "📞 ${title:-$src}" -subtitle "$src" \
+                        -message "Incoming call — click to answer or decline" \
+                        -execute "$HOME/bin/raphael-call-action '${title:-$src}' '$src'" \
+                        ${NOTIFY_SOUND:+-sound "$NOTIFY_SOUND"} >/dev/null 2>&1
+                    printf '%s  call RINGING from %s\n' "$(date '+%H:%M:%S')" "${title:-$src}"
+                else
+                    notify "Missed call" "${title:-$src}" "$src"
+                fi ;;
             *)   continue ;;
         esac
     done

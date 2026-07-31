@@ -1,0 +1,18 @@
+#!/bin/bash
+# Invoked by terminal-notifier -execute when a ring notification is clicked.
+# Runs detached from the relay poll loop, so a dialog waiting on the user can
+# never wedge the poller -- that exact class of bug already cost an hour once.
+set -u
+NAME=${1:-Unknown}; NUM=${2:-}
+SSH_TMO="-o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o BatchMode=yes"
+choice=$(osascript -e "display dialog \"Call from $NAME
+$NUM\" buttons {\"Ignore\",\"Decline\",\"Answer\"} default button \"Ignore\" with title \"raphael\"" \
+    -e 'button returned of result' 2>/dev/null) || exit 0
+case "$choice" in
+    Answer)  act=answer ;;
+    Decline) act=reject ;;
+    *) exit 0 ;;
+esac
+for h in raphael-lan raphael; do
+    ssh $SSH_TMO "$h" "asu 'dockerctl phone $act'" >/dev/null 2>&1 && exit 0
+done
