@@ -72,10 +72,18 @@ relay_apps() {
     dumpsys notification --noredact 2>/dev/null | awk -F'\t' '
         /NotificationRecord\(/ {
             emit()
-            pkg=""; title=""; text=""; skip=0
+            pkg=""; title=""; text=""; skip=0; iscall=0
             if (match($0, /pkg=[a-zA-Z0-9._]+/))
                 pkg=substr($0, RSTART+4, RLENGTH-4)
-            if ($0 ~ /ONGOING_EVENT|FOREGROUND_SERVICE|GROUP_SUMMARY/) skip=1
+            # A live call notification is ONGOING by definition -- that is
+            # what an in-progress call IS -- so the blanket ongoing filter
+            # dropped every ring. Let the call packages through; Truecaller is
+            # the one worth having, because it resolves names for numbers that
+            # are not in contacts, which phone_lookup and call_log cannot.
+            # Group summaries stay filtered either way.
+            iscall = (pkg ~ /^(com\.truecaller|com\.android\.dialer|com\.android\.incallui|com\.android\.server\.telecom)$/)
+            if ($0 ~ /GROUP_SUMMARY/) skip=1
+            else if (!iscall && $0 ~ /ONGOING_EVENT|FOREGROUND_SERVICE/) skip=1
             next
         }
         /android\.title=String \(/ {
@@ -90,7 +98,7 @@ relay_apps() {
         function emit() {
             if (pkg == "" || skip) return
             if (title == "" && text == "") return
-            printf "app\037%s\037%s\037%s\n", pkg, title, text
+            printf "%s\037%s\037%s\037%s\n", (iscall ? "call" : "app"), pkg, title, text
         }
     ' | while IFS= read -r rec; do
         # Never relay our own notifications; that is a feedback loop.
@@ -110,7 +118,7 @@ relay_apps() {
 
 # Calls ride the same poll: one cursor, one consumer. See phone.sh for why
 # the dialer's own notification cannot be used for this.
-relay_new() { phone_calls 2>/dev/null; relay_sms; relay_apps; }
+relay_new() { relay_sms; relay_apps; }
 
 relay_reset() {
     rm -f "$RELAY_SMS_CUR" "$RELAY_SEEN"

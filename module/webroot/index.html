@@ -353,8 +353,10 @@ async function refresh(){
   document.getElementById("calls").checked=(st.calls==="on");
   var cn=document.getElementById("callnote");
   if(st.calls==="on"){
-    cn.textContent=(st.callstate==="1")?"RINGING now":(st.callstate==="2"?"in a call":"idle — watching");
-    cn.className="v "+(st.callstate==="0"?"ok":"warn");
+    // callstate is now a word from dumpsys telecom, not the numeric
+    // telephony.registry value -- that field never moved on this ROM.
+    cn.textContent=(st.callstate==="ringing")?"RINGING now":(st.callstate==="incall"?"in a call":"idle — watching");
+    cn.className="v "+(st.callstate==="idle"?"ok":"warn");
   } else {cn.textContent="";cn.className="v";}
 
   // Health strip: what you want to know before tapping anything.

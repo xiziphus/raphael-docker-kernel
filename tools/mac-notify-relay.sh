@@ -141,17 +141,16 @@ pass() {
             # kind=call: src=number, title=resolved name, body=ringing|missed.
             # Clicking opens a chooser that answers or declines over ssh; the
             # dialog runs from -execute so it cannot block the poll loop.
+            # kind=call: src=package, title=caller name (Truecaller resolves
+            # names contacts cannot), body=the app's own text. Clickable, and
+            # the chooser runs detached so it cannot wedge the poll loop.
             call)
-                if [ "$body" = ringing ]; then
-                    f=$(store_body "Call from ${title:-$src}" "$src")
-                    "${NOTIFIER:-echo}" -title "📞 ${title:-$src}" -subtitle "$src" \
-                        -message "Incoming call — click to answer or decline" \
-                        -execute "$HOME/bin/raphael-call-action '${title:-$src}' '$src'" \
-                        ${NOTIFY_SOUND:+-sound "$NOTIFY_SOUND"} >/dev/null 2>&1
-                    printf '%s  call RINGING from %s\n' "$(date '+%H:%M:%S')" "${title:-$src}"
-                else
-                    notify "Missed call" "${title:-$src}" "$src"
-                fi ;;
+                "${NOTIFIER:-echo}" -title "📞 ${title:-Incoming call}" \
+                    -subtitle "${body:-$src}" \
+                    -message "Click to answer or decline" \
+                    -execute "$HOME/bin/raphael-call-action '${title:-Unknown}' ''" \
+                    ${NOTIFY_SOUND:+-sound "$NOTIFY_SOUND"} >/dev/null 2>&1
+                printf '%s  CALL %s (%s)\n' "$(date '+%H:%M:%S')" "${title:-?}" "$src" ;;
             *)   continue ;;
         esac
     done
